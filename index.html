@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#07111c" />
+  <title>NL Live Grid</title>
+  <meta name="description" content="Live kaart van het Nederlandse hoogspanningsnet op basis van openbare TenneT-data." />
+  <link rel="preconnect" href="https://unpkg.com" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="map" aria-label="Kaart van het Nederlandse hoogspanningsnet"></div>
+
+  <header class="topbar glass">
+    <div>
+      <div class="eyebrow">NEDERLAND · HOOGSPANNINGSNET</div>
+      <div class="title-row">
+        <h1>NL Live Grid</h1>
+        <span id="liveBadge" class="badge"><span class="pulse"></span> LIVE TOPOLOGY</span>
+      </div>
+    </div>
+    <div class="clock-block">
+      <span id="clock">--:--:--</span>
+      <small id="updated">TenneT assets laden…</small>
+    </div>
+  </header>
+
+  <aside class="sidebar glass">
+    <section>
+      <div class="section-title">NETWERK</div>
+      <div class="metrics">
+        <div class="metric"><strong id="lineCount">—</strong><span>verbindingen</span></div>
+        <div class="metric"><strong id="stationCount">—</strong><span>stations</span></div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-title">SPANNINGSNIVEAU</div>
+      <div class="filters">
+        <label><input type="checkbox" value="380 kV" checked><i class="swatch v380"></i>380 kV</label>
+        <label><input type="checkbox" value="220 kV" checked><i class="swatch v220"></i>220 kV</label>
+        <label><input type="checkbox" value="150 kV" checked><i class="swatch v150"></i>150 kV</label>
+        <label><input type="checkbox" value="110 kV" checked><i class="swatch v110"></i>110 kV</label>
+        <label><input id="cableToggle" type="checkbox" checked><i class="swatch cable"></i>ondergrondse kabel</label>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-title">DATASKWALITEIT</div>
+      <div class="quality-row"><span class="dot measured"></span><span>Topologie</span><b>officieel TenneT</b></div>
+      <div class="quality-row"><span class="dot estimated"></span><span>MW per lijn</span><b>volgende stap</b></div>
+      <p class="note">De kaart toont de actuele openbare TenneT-assets. Interne vermogensstromen zijn niet publiek als SCADA-meting; die worden straks berekend uit live injecties en grensstromen.</p>
+    </section>
+  </aside>
+
+  <div class="legend glass">
+    <span><i class="swatch v380"></i>380</span>
+    <span><i class="swatch v220"></i>220</span>
+    <span><i class="swatch v150"></i>150</span>
+    <span><i class="swatch v110"></i>110 kV</span>
+  </div>
+
+  <div id="status" class="status glass">TenneT-net laden…</div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script src="app.js"></script>
+</body>
+</html>
