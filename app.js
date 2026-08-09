@@ -5,7 +5,7 @@ L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{max
 
 const palette={'380 kV':'#ff5964','220 kV':'#8ddd70','150 kV':'#35a7ff','110 kV':'#d8e5ee'};
 const lineLayers=[],cableLayers=[],flowPaths=[];
-let stationLayer,lastLive=null,flowPhase=0;
+let stationLayer,lastLive=null;
 
 function endpoint(layer){return `${TennetBase}/${layer}/query?where=1%3D1&outFields=*&outSR=4326&returnGeometry=true&f=geojson`}
 function voltage(p){return p.SPANNINGSNIVEAU||'Onbekend'}
@@ -17,7 +17,6 @@ async function getGeoJSON(layer){const r=await fetch(endpoint(layer));if(!r.ok)t
 function coordsOf(feature){const g=feature.geometry;if(!g)return[];if(g.type==='LineString')return g.coordinates;if(g.type==='MultiLineString')return g.coordinates.flat();return[]}
 function flowVector(){
   const f=lastLive?.border_flows||{};
-  // approximate entry directions around NL; positive means import into NL.
   const anchors={DE:[-1,0.05],BE:[-0.25,0.9],GB:[0.95,0.15],NO2:[0.05,-1],DK1:[-0.15,-0.95]};
   let x=0,y=0,w=0;
   for(const [k,mwRaw] of Object.entries(f)){
@@ -32,27 +31,24 @@ function modeledFlow(feature){
   const a=c[0],b=c[c.length-1];let dx=b[0]-a[0],dy=b[1]-a[1];const n=Math.hypot(dx,dy)||1;dx/=n;dy/=n;
   const [fx,fy]=flowVector();
   const align=dx*fx+dy*fy;
-  const scale={'380 kV':1,'220 kV':.72,'150 kV':.44,'110 kV':.3}[voltage(feature.properties)]||.25;
+  const scale={'380 kV':1,'220 kV':.76,'150 kV':.5,'110 kV':.36}[voltage(feature.properties)]||.3;
   return align*scale;
 }
 function flowStyle(feature){
   const q=modeledFlow(feature),mag=Math.abs(q),show=document.querySelector('#flowToggle')?.checked!==false;
-  return {color:'#ffd15c',weight:Math.max(1.4,lineWeight(feature.properties)*.62),opacity:show?(0.12+0.72*mag):0,dashArray:'2 11',lineCap:'round',interactive:false,className:q>=0?'flow-forward':'flow-reverse'};
+  return {color:'#ffd15c',weight:Math.max(2.4,lineWeight(feature.properties)*.9),opacity:show?(0.42+0.5*mag):0,dashArray:'11 13',lineCap:'round',interactive:false,className:q>=0?'flow-forward':'flow-reverse'};
 }
 function addFlowOverlay(data){
   const layer=L.geoJSON(data,{style:f=>flowStyle(f)}).addTo(map);
   layer.eachLayer(l=>{l.__flowFeature=l.feature;flowPaths.push(l)});
 }
 function refreshFlowStyles(){
-  for(const l of flowPaths)l.setStyle(flowStyle(l.__flowFeature));
-}
-function animateFlows(){
-  flowPhase=(flowPhase+1)%120;
   for(const l of flowPaths){
-    const p=l.getElement?.();if(!p)continue;
-    const q=modeledFlow(l.__flowFeature);p.style.strokeDashoffset=`${q>=0?-flowPhase:flowPhase}`;
+    const old=l.getElement?.();
+    const s=flowStyle(l.__flowFeature);l.setStyle(s);
+    const p=l.getElement?.()||old;
+    if(p){p.classList.remove('flow-forward','flow-reverse');p.classList.add(modeledFlow(l.__flowFeature)>=0?'flow-forward':'flow-reverse');}
   }
-  requestAnimationFrame(animateFlows);
 }
 
 function addLines(data,isCable=false){
@@ -107,7 +103,7 @@ async function boot(){
     document.querySelector('#lineCount').textContent=(addLines(overhead,false)+addLines(cables,true)).toLocaleString('nl-NL');
     addFlowOverlay(overhead);
     document.querySelector('#stationCount').textContent=addStations(stations).toLocaleString('nl-NL');
-    applyFilters();status.textContent='TenneT-net + interne modelrichting actief';setTimeout(()=>status.style.opacity=.55,2800);animateFlows();
+    applyFilters();status.textContent='Interne flowanimatie actief';setTimeout(()=>status.style.opacity=.55,2800);
   }catch(err){console.error(err);status.textContent='Kon TenneT-data niet laden';}
 }
 function tick(){document.querySelector('#clock').textContent=new Intl.DateTimeFormat('nl-NL',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false,timeZone:'Europe/Amsterdam'}).format(new Date());}
