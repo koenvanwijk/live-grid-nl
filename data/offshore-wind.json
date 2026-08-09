@@ -1,0 +1,12 @@
+{
+  "source_note": "Static operational offshore wind park catalogue for visualization; live production is not yet per-park measured.",
+  "parks": [
+    {"name":"Borssele 1 & 2","capacity_mw":752,"lat":51.70,"lon":3.00,"landing":"Borssele","landing_lat":51.44,"landing_lon":3.75},
+    {"name":"Borssele 3 & 4","capacity_mw":731.5,"lat":51.63,"lon":2.90,"landing":"Borssele","landing_lat":51.44,"landing_lon":3.75},
+    {"name":"Hollandse Kust Zuid","capacity_mw":1500,"lat":52.25,"lon":4.15,"landing":"Maasvlakte","landing_lat":51.96,"landing_lon":4.04},
+    {"name":"Hollandse Kust Noord","capacity_mw":759,"lat":52.62,"lon":4.22,"landing":"Wijk aan Zee","landing_lat":52.49,"landing_lon":4.58},
+    {"name":"Gemini","capacity_mw":600,"lat":54.05,"lon":6.04,"landing":"Eemshaven","landing_lat":53.45,"landing_lon":6.83},
+    {"name":"Princess Amalia","capacity_mw":120,"lat":52.59,"lon":4.24,"landing":"Velsen","landing_lat":52.46,"landing_lon":4.64},
+    {"name":"Egmond aan Zee","capacity_mw":108,"lat":52.61,"lon":4.42,"landing":"Velsen","landing_lat":52.46,"landing_lon":4.64}
+  ]
+}
