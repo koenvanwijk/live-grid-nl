@@ -38,6 +38,9 @@ jobs:
       - name: Show snapshot status
         run: cat data/live.json
 
+      - name: Validate snapshot
+        run: python -c "import json; data=json.load(open('data/live.json')); assert data['status']=='ok', data.get('warnings')"
+
       - name: Prepare static site
         run: touch .nojekyll
 
