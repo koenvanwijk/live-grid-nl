@@ -1,0 +1,10 @@
+{
+  "status": "token-missing",
+  "generated_at": "2026-08-09T13:30:00+00:00",
+  "measured_at": null,
+  "load_mw": null,
+  "generation_mw": null,
+  "net_import_mw": null,
+  "border_flows": {},
+  "source": "ENTSO-E Transparency Platform"
+}
