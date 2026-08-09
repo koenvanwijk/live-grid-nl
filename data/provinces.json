@@ -1,0 +1,17 @@
+{
+  "note": "Aggregation nodes for generators below 100 MW. Province is the reporting bucket; future model code should distribute each bucket across suitable 110/150 kV substations instead of injecting everything at this centroid.",
+  "provinces": [
+    {"name":"Groningen","lat":53.22,"lon":6.57,"types":["wind onshore","solar","gas/WKK","biomass"]},
+    {"name":"Friesland","lat":53.16,"lon":5.78,"types":["wind onshore","solar","biomass","gas/WKK"]},
+    {"name":"Drenthe","lat":52.95,"lon":6.62,"types":["wind onshore","solar","gas/WKK","biomass"]},
+    {"name":"Overijssel","lat":52.44,"lon":6.42,"types":["wind onshore","solar","gas/WKK","biomass"]},
+    {"name":"Flevoland","lat":52.53,"lon":5.55,"types":["wind onshore","solar","biomass"]},
+    {"name":"Gelderland","lat":52.06,"lon":5.88,"types":["wind onshore","solar","gas/WKK","biomass"]},
+    {"name":"Utrecht","lat":52.09,"lon":5.12,"types":["solar","gas/WKK","biomass"]},
+    {"name":"Noord-Holland","lat":52.62,"lon":4.82,"types":["wind onshore","solar","gas/WKK","industrial generation"]},
+    {"name":"Zuid-Holland","lat":52.02,"lon":4.45,"types":["wind onshore","solar","gas/WKK","industrial generation","waste"]},
+    {"name":"Zeeland","lat":51.49,"lon":3.84,"types":["wind onshore","solar","gas/WKK","industrial generation"]},
+    {"name":"Noord-Brabant","lat":51.57,"lon":5.08,"types":["wind onshore","solar","gas/WKK","biomass","waste"]},
+    {"name":"Limburg","lat":51.21,"lon":5.94,"types":["wind onshore","solar","gas/WKK","biomass"]}
+  ]
+}
