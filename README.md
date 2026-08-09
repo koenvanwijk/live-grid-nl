@@ -2,15 +2,31 @@
 
 Interactieve kaart van het Nederlandse hoogspanningsnet, geïnspireerd op de live grid-weergave van Energinet.
 
-## Wat werkt nu
+## Wat werkt
 
-- Officiële openbare **TenneT TSO B.V.** assetdata wordt rechtstreeks in de browser geladen.
+- Officiële openbare **TenneT** topologie rechtstreeks uit de ArcGIS FeatureServer.
 - Bovengrondse lijnen, ondergrondse kabels en hoogspanningsstations vanaf 110 kV.
 - Filters voor 110 / 150 / 220 / 380 kV.
 - Responsive dashboard voor desktop en mobiel.
-- Geen verzonnen MW-waarden: interne vermogensstromen worden pas getoond zodra het state-estimation model beschikbaar is.
+- Live nationale vraag, opwek en grensstromen uit **ENTSO-E** via een door GitHub Actions gegenereerde `data/live.json` snapshot.
+- Automatische verversing en GitHub Pages deployment iedere 15 minuten.
+- Geen verzonnen interne MW-waarden: interne TenneT-SCADA-lijnstromen zijn niet openbaar.
 
-## Databron
+## Eenmalige configuratie
+
+### 1. GitHub Pages
+
+Ga in de repository naar **Settings → Pages** en kies **GitHub Actions** als source. De workflow `.github/workflows/pages.yml` publiceert daarna automatisch bij iedere push naar `main` en iedere 15 minuten.
+
+### 2. ENTSO-E token
+
+Maak in **Settings → Secrets and variables → Actions** een repository secret aan:
+
+`ENTSO_E_TOKEN`
+
+De waarde is je ENTSO-E Transparency Platform API security token. Zonder dit secret blijft de TenneT-kaart volledig werken, maar toont het dashboard bewust geen fictieve live systeemwaarden.
+
+## Databronnen
 
 TenneT Assets Hoogspanning ArcGIS FeatureServer:
 
@@ -18,30 +34,25 @@ TenneT Assets Hoogspanning ArcGIS FeatureServer:
 
 Gebruikte lagen:
 
-- 2 — Hoogspanning leiding (bovengronds)
-- 3 — Hoogspanning kabel (ondergronds)
-- 5 — Hoogspanning station
+- 2 — bovengrondse hoogspanningsverbindingen
+- 3 — ondergrondse hoogspanningskabels
+- 5 — hoogspanningsstations
 
-De dataset bevat openbare Nederlandse TenneT-assets van 110 kV en hoger en wordt door TenneT periodiek bijgewerkt.
+ENTSO-E Transparency Platform API wordt gebruikt voor actual total load, actual generation per production type en physical cross-border flows van Nederland met België, Duitsland/Luxemburg, Groot-Brittannië, Noorwegen en Denemarken.
 
-## Volgende stap: echte live grid state
+## Datakwaliteit
 
-Doelarchitectuur:
-
-1. TenneT asset topology normaliseren naar een elektrisch bus/branch-model.
-2. Live nationale en regionale injecties ophalen uit TenneT/NED.
-3. Grensstromen uit TenneT/ENTSO-E toevoegen.
-4. Netwerktopologie verrijken met elektrische parameters.
-5. DC power flow / state estimation uitvoeren.
-6. Per verbinding richting, MW, benuttingsgraad en confidence tonen.
-7. Gemeten, afgeleide en gemodelleerde waarden in de UI expliciet onderscheiden.
+De toepassing maakt expliciet onderscheid tussen bronnen. TenneT-topologie is officiële assetdata. De landelijke en grenswaarden zijn gemeten ENTSO-E-data. Interne lijnstromen worden niet weergegeven zolang er geen verdedigbaar state-estimation/power-flow-model beschikbaar is.
 
 ## Lokaal draaien
 
-Omdat de kaart externe API's gebruikt is een simpele HTTP-server aanbevolen:
-
 ```bash
+ENTSO_E_TOKEN=... python3 scripts/update_live.py
 python3 -m http.server 8080
 ```
 
 Open daarna `http://localhost:8080`.
+
+## Volgende technische stap
+
+Voor een Nederlandse equivalent van de Energinet-kaart kan een bus/branch-model worden opgebouwd uit de TenneT-topologie, verrijkt met elektrische parameters en regionale injecties. Daarna kan een DC power flow/state estimation geschatte MW-flow per interne verbinding leveren, waarbij de UI die waarden expliciet als **modelled/estimated** markeert en gemeten grenswaarden als constraints gebruikt.
