@@ -28,10 +28,14 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Refresh ENTSO-E snapshot
+      - name: Refresh Dutch grid snapshot
         env:
+          NED_TOKEN: ${{ secrets.NED_TOKEN }}
           ENTSO_E_TOKEN: ${{ secrets.ENTSO_E_TOKEN }}
         run: python scripts/update_live.py
+
+      - name: Show snapshot status
+        run: cat data/live.json
 
       - name: Prepare static site
         run: touch .nojekyll
