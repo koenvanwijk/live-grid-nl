@@ -31,6 +31,7 @@ jobs:
       - name: Refresh Dutch grid snapshot
         env:
           NED_TOKEN: ${{ secrets.NED_TOKEN }}
+          TENNET_TOKEN: ${{ secrets.TENNET_TOKEN }}
           ENTSO_E_TOKEN: ${{ secrets.ENTSO_E_TOKEN }}
         run: python scripts/update_live.py
 
