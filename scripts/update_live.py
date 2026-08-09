@@ -5,6 +5,8 @@ from pathlib import Path
 
 ENTSO_API='https://web-api.tp.entsoe.eu/api'
 NED_API='https://api.ned.nl/v1/utilizations'
+TENNET_METERED='https://api.tennet.eu/publications/v1/metered-injections'
+TENNET_BALANCE='https://api.tennet.eu/publications/v1/balance-delta'
 NL='10YNL----------L'
 BORDERS={'DE':'10Y1001A1001A82H','BE':'10YBE----------2','GB':'10YGB-0000A-000','NO2':'10YNO-2--------T','DK1':'10YDK-1--------W'}
 PROVINCES={1:'Groningen',2:'Friesland',3:'Drenthe',4:'Overijssel',5:'Flevoland',6:'Gelderland',7:'Utrecht',8:'Noord-Holland',9:'Zuid-Holland',10:'Zeeland',11:'Noord-Brabant',12:'Limburg'}
@@ -12,11 +14,16 @@ OFFSHORE={28:'Luchterduinen',29:'Prinses Amalia',30:'Egmond aan Zee',31:'Gemini'
 OUT=Path('data/live.json')
 ENTSO_TOKEN=os.getenv('ENTSO_E_TOKEN','').strip()
 NED_TOKEN=os.getenv('NED_TOKEN','').strip()
+TENNET_TOKEN=os.getenv('TENNET_TOKEN','').strip()
 
 
 def get_json(url,params,headers=None):
     req=urllib.request.Request(url+'?'+urllib.parse.urlencode(params),headers=headers or {})
     with urllib.request.urlopen(req,timeout=30) as r:return json.load(r)
+
+def utc_window(hours=8):
+    now=datetime.now(timezone.utc); start=now-timedelta(hours=hours)
+    return start.strftime('%Y-%m-%dT%H:%M:%SZ'),now.strftime('%Y-%m-%dT%H:%M:%SZ')
 
 def ned_records(point,type_id,activity=1,days=2):
     if not NED_TOKEN:return []
@@ -29,12 +36,54 @@ def ned_records(point,type_id,activity=1,days=2):
 
 def latest_ned(point,type_id,activity=1):
     rows=ned_records(point,type_id,activity)
-    if not rows:return None
     rows=[r for r in rows if r.get('capacity') is not None and r.get('validfrom')]
     if not rows:return None
     r=max(rows,key=lambda x:x['validfrom'])
-    # NED capacity is kW; convert average interval capacity to MW.
     return {'mw':float(r['capacity'])/1000.0,'validfrom':r['validfrom'],'validto':r.get('validto'),'lastupdate':r.get('lastupdate')}
+
+def tennet_json(url,hours=8):
+    if not TENNET_TOKEN:return None
+    date_from,date_to=utc_window(hours)
+    return get_json(url,{'date_from':date_from,'date_to':date_to},{'apikey':TENNET_TOKEN,'Accept':'application/json'})
+
+def walk(obj,path=''):
+    if isinstance(obj,dict):
+        for k,v in obj.items():yield from walk(v,f'{path}.{k}' if path else k)
+    elif isinstance(obj,list):
+        for i,v in enumerate(obj):yield from walk(v,f'{path}[{i}]')
+    else:yield path,obj
+
+def latest_tennet_metered():
+    d=tennet_json(TENNET_METERED,48)
+    if not d:return None
+    candidates=[];timestamps=[]
+    for path,val in walk(d):
+        key=path.lower()
+        if isinstance(val,(int,float)) and any(x in key for x in ('quantity','volume','value','injection','load','power')):
+            # Exclude obvious sequence/index fields.
+            if not any(x in key for x in ('sequence','position','price')):candidates.append((path,float(val)))
+        if isinstance(val,str) and any(x in key for x in ('time','date','start','valid')):
+            if 't' in val and ('z' in val.lower() or '+' in val):timestamps.append(val)
+    if not candidates:return None
+    # Prefer fields explicitly describing metered injections/load; otherwise last numeric measurement.
+    preferred=[x for x in candidates if any(w in x[0].lower() for w in ('metered','injection','load','quantity'))]
+    value=(preferred or candidates)[-1][1]
+    # TenneT publication values are expected in MW for this product. Guard against kW-like magnitudes.
+    if abs(value)>200000:value/=1000.0
+    return {'mw':value,'measured_at':timestamps[-1] if timestamps else None,'raw_field':(preferred or candidates)[-1][0]}
+
+def latest_tennet_balance():
+    d=tennet_json(TENNET_BALANCE,1)
+    if not d:return None
+    fields={}
+    for path,val in walk(d):
+        leaf=path.split('.')[-1].split('[')[0]
+        if isinstance(val,(int,float)) and leaf in ('power_afrr_in','power_afrr_out','power_igcc_in','power_igcc_out','power_mfrrda_in','power_mfrrda_out','power_picasso_in','power_picasso_out'):
+            fields[leaf]=float(val)
+    if not fields:return None
+    up=sum(v for k,v in fields.items() if k.endswith('_in'))
+    down=sum(v for k,v in fields.items() if k.endswith('_out'))
+    return {'up_mw':round(up,1),'down_mw':round(down,1),'delta_mw':round(up-down,1),**fields}
 
 def entso_request(params):
     q={'securityToken':ENTSO_TOKEN,**params};url=ENTSO_API+'?'+urllib.parse.urlencode(q)
@@ -62,13 +111,28 @@ def border_flow(other,start,end):
 def main():
     OUT.parent.mkdir(parents=True,exist_ok=True);now=datetime.now(timezone.utc)
     data={'status':'no-data','generated_at':now.isoformat(),'measured_at':None,'load_mw':None,'generation_mw':None,'net_import_mw':None,'border_flows':{},
-          'generation_by_province':{},'offshore_wind_mw':{},'sources':[],'warnings':[]}
+          'generation_by_province':{},'offshore_wind_mw':{},'tennet':{},'sources':[],'warnings':[]}
 
-    # NED is primary for Dutch generation/load because it offers current + historical values and regional detail.
+    # TenneT is primary for transmission-visible measured load and operational balancing state.
+    if TENNET_TOKEN:
+        try:
+            m=latest_tennet_metered()
+            if m:
+                data['load_mw']=round(m['mw'],1);data['measured_at']=m.get('measured_at');data['tennet']['metered_injections']=m
+        except Exception as e:data['warnings'].append('TenneT metered injections: '+str(e))
+        try:
+            b=latest_tennet_balance()
+            if b:data['tennet']['balance_delta']=b
+        except Exception as e:data['warnings'].append('TenneT balance delta: '+str(e))
+        data['sources'].append('TenneT')
+
+    # NED supplies Dutch generation plus regional/onshore/offshore detail; it also backs up load.
     if NED_TOKEN:
         try:
             load=latest_ned(0,59,2)
-            if load:data['load_mw']=round(load['mw'],1);data['measured_at']=load['validfrom']
+            if load:
+                data['ned_load_mw']=round(load['mw'],1)
+                if data['load_mw'] is None:data['load_mw']=data['ned_load_mw'];data['measured_at']=load['validfrom']
         except Exception as e:data['warnings'].append('NED load: '+str(e))
         try:
             mix=latest_ned(0,27,1)
@@ -89,7 +153,7 @@ def main():
             except Exception as e:data['warnings'].append(f'NED offshore {name}: {e}')
         data['sources'].append('NED')
 
-    # ENTSO-E remains the preferred source for cross-border physical flows.
+    # ENTSO-E is optional: when its token arrives it adds physical cross-border flows.
     if ENTSO_TOKEN:
         start,end=entso_window()
         for label,domain in BORDERS.items():
@@ -98,16 +162,12 @@ def main():
         if data['border_flows']:data['net_import_mw']=round(sum(data['border_flows'].values()),1)
         data['sources'].append('ENTSO-E')
 
-    # If neither token is configured, preserve an explicit state instead of inventing values.
-    if data['load_mw'] is not None or data['generation_mw'] is not None or data['border_flows'] or data['generation_by_province'] or data['offshore_wind_mw']:
+    if data['load_mw'] is not None or data['generation_mw'] is not None or data['tennet'] or data['generation_by_province'] or data['offshore_wind_mw'] or data['border_flows']:
         data['status']='ok'
-    elif not NED_TOKEN and not ENTSO_TOKEN:
-        data['status']='token-missing'
-        data['warnings'].append('Configure NED_TOKEN and/or ENTSO_E_TOKEN in GitHub Actions secrets.')
+    elif not NED_TOKEN and not TENNET_TOKEN and not ENTSO_TOKEN:
+        data['status']='token-missing';data['warnings'].append('Configure NED_TOKEN and TENNET_TOKEN in GitHub Actions secrets.')
     else:data['status']='error'
-
     if not data['measured_at'] and data['status']=='ok':data['measured_at']=now.replace(minute=(now.minute//15)*15,second=0,microsecond=0).isoformat()
-    OUT.write_text(json.dumps(data,indent=2,ensure_ascii=False)+'\n')
-    print(json.dumps(data,indent=2,ensure_ascii=False))
+    OUT.write_text(json.dumps(data,indent=2,ensure_ascii=False)+'\n');print(json.dumps(data,indent=2,ensure_ascii=False))
 
 if __name__=='__main__':main()
