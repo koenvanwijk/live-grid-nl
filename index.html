@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <meta name="theme-color" content="#07111c" />
   <title>NL Live Grid</title>
-  <meta name="description" content="Live kaart van het Nederlandse hoogspanningsnet met TenneT-topologie en ENTSO-E systeemdata." />
+  <meta name="description" content="Live kaart van het Nederlandse hoogspanningsnet met TenneT-topologie, ENTSO-E systeemdata en gemodelleerde interne stroomrichtingen." />
   <link rel="preconnect" href="https://unpkg.com" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
   <link rel="stylesheet" href="styles.css" />
@@ -52,8 +52,9 @@
     </section>
 
     <section>
-      <div class="section-title">SPANNINGSNIVEAU</div>
+      <div class="section-title">WEERGAVE</div>
       <div class="filters">
+        <label><input id="flowToggle" type="checkbox" checked><i class="swatch flow"></i>interne flowrichting</label>
         <label><input type="checkbox" value="380 kV" checked><i class="swatch v380"></i>380 kV</label>
         <label><input type="checkbox" value="220 kV" checked><i class="swatch v220"></i>220 kV</label>
         <label><input type="checkbox" value="150 kV" checked><i class="swatch v150"></i>150 kV</label>
@@ -66,13 +67,13 @@
       <div class="section-title">DATASKWALITEIT</div>
       <div class="quality-row"><span class="dot measured"></span><span>Topologie</span><b>TenneT</b></div>
       <div class="quality-row"><span class="dot measured"></span><span>Land / grens</span><b id="liveSource">ENTSO-E</b></div>
-      <div class="quality-row"><span class="dot estimated"></span><span>Interne MW/lijn</span><b>niet gemeten</b></div>
-      <p class="note">Interne SCADA-lijnstromen zijn niet openbaar. De kaart verzint daarom geen MW-waarden per interne lijn. Grensstromen en nationale systeemwaarden zijn gemeten openbare data wanneer de ENTSO-E token is geconfigureerd.</p>
+      <div class="quality-row"><span class="dot estimated"></span><span>Interne richting</span><b>model v0</b></div>
+      <p class="note">De bewegende interne lijnen zijn een transparante modelindicatie, afgeleid van actuele grensstromen, lijnoriëntatie en spanningsniveau. Dit zijn geen TenneT-SCADA-metingen en nog geen gevalideerde MW-lijnstromen.</p>
     </section>
   </aside>
 
   <div class="legend glass">
-    <span><i class="swatch v380"></i>380</span><span><i class="swatch v220"></i>220</span><span><i class="swatch v150"></i>150</span><span><i class="swatch v110"></i>110 kV</span>
+    <span><i class="swatch flow"></i>modelrichting</span><span><i class="swatch v380"></i>380</span><span><i class="swatch v220"></i>220</span><span><i class="swatch v150"></i>150</span><span><i class="swatch v110"></i>110 kV</span>
   </div>
   <div id="status" class="status glass">net laden…</div>
 
