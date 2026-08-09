@@ -1,0 +1,18 @@
+{
+  "note": "Curated initial registry of Dutch generating sites >=100 MW for map/model seeding. Capacities are site-level installed/gross values where publicly available and should be verified against operator/ENTSO-E unit data before quantitative load-flow use.",
+  "plants": [
+    {"name":"Eemshaven Power Plant","operator":"RWE","province":"Groningen","type":"coal/biomass","capacity_mw":1560,"lat":53.445,"lon":6.835},
+    {"name":"Magnum Power Plant","operator":"RWE","province":"Groningen","type":"gas CCGT","capacity_mw":1410,"lat":53.438,"lon":6.830},
+    {"name":"Enecogen","operator":"Enecogen","province":"Zuid-Holland","type":"gas CCGT","capacity_mw":870,"lat":51.953,"lon":4.095},
+    {"name":"Maasvlakte Power Plant 3","operator":"Uniper","province":"Zuid-Holland","type":"coal/biomass","capacity_mw":1070,"lat":51.960,"lon":4.025},
+    {"name":"Rijnmond Power Plant","operator":"InterGen","province":"Zuid-Holland","type":"gas CCGT","capacity_mw":790,"lat":51.915,"lon":4.240},
+    {"name":"Diemen 34","operator":"Vattenfall","province":"Noord-Holland","type":"gas CCGT","capacity_mw":435,"lat":52.334,"lon":5.006},
+    {"name":"Diemen 33","operator":"Vattenfall","province":"Noord-Holland","type":"gas CCGT","capacity_mw":266,"lat":52.334,"lon":5.006},
+    {"name":"Clauscentrale C","operator":"RWE","province":"Limburg","type":"gas CCGT","capacity_mw":1304,"lat":51.155,"lon":5.914},
+    {"name":"Moerdijk Power Plant","operator":"Vattenfall","province":"Noord-Brabant","type":"gas CCGT","capacity_mw":426,"lat":51.685,"lon":4.598},
+    {"name":"Amercentrale 9","operator":"RWE","province":"Noord-Brabant","type":"biomass/coal","capacity_mw":600,"lat":51.719,"lon":4.838},
+    {"name":"Borssele Nuclear Power Station","operator":"EPZ","province":"Zeeland","type":"nuclear","capacity_mw":485,"lat":51.431,"lon":3.718},
+    {"name":"Tata Steel IJmuiden power generation","operator":"Tata Steel","province":"Noord-Holland","type":"industrial gas/WKK","capacity_mw":300,"lat":52.469,"lon":4.604},
+    {"name":"Utrecht Lage Weide","operator":"district energy / utility","province":"Utrecht","type":"gas/WKK","capacity_mw":250,"lat":52.110,"lon":5.060}
+  ]
+}
