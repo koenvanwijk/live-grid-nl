@@ -3,11 +3,15 @@
     {"name":"Zonnepark Eekerpolder","lat":53.151,"lon":6.995,"capacity_mwp":192,"status":"operationeel","operator":"Novar / Coöperatie Eekerpolder","province":"Groningen","source":"Novar, 15-04-2026","note":"Een van de grootste zonneparken van Nederland; CBC met TenneT."},
     {"name":"Zonnepark Vloeivelden Hollandia","lat":52.964,"lon":6.944,"capacity_mwp":115,"status":"operationeel","operator":"Novar","province":"Drenthe","source":"Novar, 15-04-2026","note":"Groot zonnepark bij Nieuw-Buinen; gekoppeld aan H2 Hollandia."}
   ],
+  "onshore_wind": [
+    {"name":"Windpark Zeewolde","lat":52.30,"lon":5.47,"capacity_mw":322,"turbines":83,"status":"operationeel","operator":"Windpark Zeewolde / lokale aandeelhouders","province":"Flevoland","source":"Windunie / Windpark Zeewolde","note":"83 Vestas-turbines; een van de grootste Nederlandse windparken op land."},
+    {"name":"Windpark Wieringermeer","lat":52.82,"lon":5.02,"capacity_mw":301,"turbines":99,"status":"operationeel","operator":"Vattenfall / a.s.r. / EWF","province":"Noord-Holland","source":"Windpark Wieringermeer","note":"99 turbines in de Wieringermeerpolder; groot operationeel windpark op land."}
+  ],
   "storage": [
     {"name":"Pollux","lat":51.447,"lon":3.724,"power_mw":30,"energy_mwh":68,"technology":"Li-ion BESS","status":"operationeel","operator":"SemperPower","province":"Zeeland","source":"Energy Storage NL","note":"Vlissingen-Oost, North Sea Port; in gebruik sinds december 2023."},
     {"name":"Castor","lat":51.447,"lon":3.716,"power_mw":30,"energy_mwh":63,"technology":"Li-ion BESS","status":"operationeel","operator":"SemperPower","province":"Zeeland","source":"Energy Storage NL","note":"Vlissingen-Oost, North Sea Port; in gebruik sinds 2023."},
     {"name":"Buffalo","lat":52.535,"lon":5.545,"power_mw":25,"energy_mwh":48,"technology":"LFP BESS","status":"operationeel","operator":"GIGA Storage","province":"Flevoland","source":"GIGA Storage","note":"WUR-testlocatie Lelystad; onderdeel Smart Grid Oost-Flevoland; opgeleverd 2022."}
   ],
-  "thresholds":{"solar_mwp":25,"storage_mw":25},
-  "method":"Alleen assets met publiek verifieerbare capaciteit en locatie worden opgenomen. Projecten in bouw/ontwikkeling staan niet in de operationele kaartlaag."
+  "thresholds":{"solar_mwp":25,"onshore_wind_mw":25,"storage_mw":25},
+  "method":"Alleen assets met publiek verifieerbare capaciteit en locatie worden opgenomen. Icoongrootte voor batterijopslag wordt uitsluitend door MW laad/ontlaadvermogen bepaald; MWh wordt alleen als energie-inhoud getoond."
 }
