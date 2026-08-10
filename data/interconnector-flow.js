@@ -8,10 +8,16 @@ function clear(){for(const l of layers.concat(dots)){try{map.removeLayer(l)}catc
 function removeLegacy(){map.eachLayer(l=>{if(l.__ic){try{map.removeLayer(l)}catch(e){}}})}
 function visible(){return document.querySelector('#crossBorderToggle')?.checked!==false}
 function point(a,b,t){return[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t]}
+function isPhysicalGermany(ic){return ic?.country==='DE'&&String(ic.id||'').startsWith('DE-')}
 function render(){
  clear();removeLegacy();
  const on=visible();
  for(const ic of window.NL_INTERCONNECTORS||[]){
+  // Germany's four physical corridors are drawn once by flow-particles.js as
+  // static physical links. ENTSO-E only exposes the measured NL-DE border total,
+  // so drawing that same total on every corridor would be both duplicate UI and
+  // semantically wrong.
+  if(isPhysicalGermany(ic))continue;
   const flow=mw(ic.country),cap=Number(ic.capacity_mw)||0,u=cap?Math.min(1,Math.abs(flow)/cap):0,into=flow>=0,w=width(cap);
   const line=L.polyline([ic.from,ic.to],{color:color(u),weight:w,opacity:on?.88:0,lineCap:'round'}).addTo(map);
   line.bindPopup(`<b>${ic.name}</b><small>${ic.type} · ${cap?cap.toLocaleString('nl-NL')+' MW capaciteit':'capaciteit onbekend'}</small><small>${Math.abs(flow).toLocaleString('nl-NL')} MW · ${into?'import naar Nederland':'export uit Nederland'}</small><small>Elke bewegende stip ≈ 100 MW actuele grensstroom.</small><small>${ic.note||''}</small>`,{className:'grid-popup'});
