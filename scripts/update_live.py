@@ -11,6 +11,12 @@ NL='10YNL----------L'
 BORDERS={'DE':'10Y1001A1001A82H','BE':'10YBE----------2','GB':'10YGB-0000A-000','NO2':'10YNO-2--------T','DK1':'10YDK-1--------W'}
 PROVINCES={1:'Groningen',2:'Friesland',3:'Drenthe',4:'Overijssel',5:'Flevoland',6:'Gelderland',7:'Utrecht',8:'Noord-Holland',9:'Zuid-Holland',10:'Zeeland',11:'Noord-Brabant',12:'Limburg'}
 OFFSHORE={28:'Luchterduinen',29:'Prinses Amalia',30:'Egmond aan Zee',31:'Gemini',33:'Borssele 1&2',34:'Borssele 3&4',35:'Hollandse Kust Zuid',36:'Hollandse Kust Noord'}
+PSR_NAMES={
+    'B01':'Biomassa','B02':'Bruinkool','B03':'Kolengas','B04':'Gas','B05':'Steenkool','B06':'Olie',
+    'B07':'Olieschalie','B08':'Turf','B09':'Geothermie','B10':'Pompaccumulatie','B11':'Waterkracht rivier',
+    'B12':'Waterkracht reservoir','B13':'Getijden/zee','B14':'Kernenergie','B15':'Overig hernieuwbaar',
+    'B16':'Zon','B17':'Afval','B18':'Wind op zee','B19':'Wind op land','B20':'Overig','B25':'Opslag'
+}
 OUT=Path('data/live.json')
 ENTSO_TOKEN=os.getenv('ENTSO_E_TOKEN','').strip()
 NED_TOKEN=os.getenv('NED_TOKEN','').strip()
@@ -35,7 +41,6 @@ def get_json(url,params,headers=None):
 
 def tennet_window(hours=23):
     now=datetime.now(timezone.utc); start=now-timedelta(hours=hours)
-    # TenneT's timeframe endpoints require dd-mm-yyyy rather than ISO-8601.
     fmt='%d-%m-%Y %H:%M:%S'
     return start.strftime(fmt),now.strftime(fmt)
 
@@ -65,7 +70,6 @@ def tennet_json(url,hours=None):
     return get_json(url,params,{'apikey':TENNET_TOKEN,'Accept':'application/json'})
 
 def response_points(data):
-    """Return all point objects from either TenneT Period representation."""
     result=[]
     for series in (data or {}).get('Response',{}).get('TimeSeries',[]):
         periods=series.get('Period',[])
@@ -79,12 +83,9 @@ def number(value):
     except (TypeError,ValueError):return 0.0
 
 def latest_tennet_metered():
-    # This endpoint allows a maximum range of one day.
     rows=response_points(tennet_json(TENNET_METERED,23))
     if not rows:return None
     row=max(rows,key=lambda x:x.get('timeInterval_start',''))
-    # The product contains quarter-hour energy in MWh. TenneT defines visible
-    # load as measured infeed - scheduled export + scheduled import.
     mwh=number(row.get('measured_infeed'))-number(row.get('scheduled_export'))+number(row.get('scheduled_import'))
     return {
         'mw':mwh*4,
@@ -124,6 +125,51 @@ def entso_last(params):
 def entso_window():
     now=datetime.now(timezone.utc);start=now-timedelta(hours=6);end=now+timedelta(hours=1);fmt='%Y%m%d%H%M';return start.strftime(fmt),end.strftime(fmt)
 
+def local_name(tag):
+    return tag.rsplit('}',1)[-1]
+
+def child_text(node,*names):
+    wanted=set(names)
+    for el in node.iter():
+        if local_name(el.tag) in wanted and el.text:return el.text.strip()
+    return None
+
+def entso_generation_mix(start,end):
+    raw=entso_request({'documentType':'A75','processType':'A16','in_Domain':NL,'periodStart':start,'periodEnd':end})
+    root=ET.fromstring(raw);mix={};latest_at=None
+    for series in root.iter():
+        if local_name(series.tag)!='TimeSeries':continue
+        psr=child_text(series,'psrType')
+        if not psr:continue
+        # A75 can contain consumption series (notably pumped storage). Only count
+        # generation series when ENTSO-E identifies an in-bidding-zone domain.
+        has_in=any(local_name(el.tag)=='inBiddingZone_Domain.mRID' for el in series.iter())
+        has_out=any(local_name(el.tag)=='outBiddingZone_Domain.mRID' for el in series.iter())
+        if has_out and not has_in:continue
+        latest=None
+        for period in series.iter():
+            if local_name(period.tag)!='Period':continue
+            start_el=child_text(period,'start')
+            resolution=child_text(period,'resolution') or 'PT15M'
+            seconds=900 if resolution=='PT15M' else 3600 if resolution=='PT60M' else 900
+            try:period_start=datetime.fromisoformat(start_el.replace('Z','+00:00')) if start_el else None
+            except ValueError:period_start=None
+            for point in period:
+                if local_name(point.tag)!='Point':continue
+                pos=child_text(point,'position');qty=child_text(point,'quantity')
+                if qty is None:continue
+                try:value=float(qty)
+                except ValueError:continue
+                ts=period_start+timedelta(seconds=seconds*(int(pos or '1')-1)) if period_start else None
+                key=ts.isoformat() if ts else ''
+                if latest is None or key>latest[0]:latest=(key,value)
+        if latest:
+            mix[psr]=mix.get(psr,0.0)+latest[1]
+            if latest[0] and (latest_at is None or latest[0]>latest_at):latest_at=latest[0]
+    rows=[{'code':code,'name':PSR_NAMES.get(code,code),'mw':round(mw,1)} for code,mw in mix.items() if abs(mw)>=0.05]
+    rows.sort(key=lambda x:x['mw'],reverse=True)
+    return rows,latest_at
+
 def border_flow(other,start,end):
     inbound=entso_last({'documentType':'A11','in_Domain':other,'out_Domain':NL,'periodStart':start,'periodEnd':end}) or 0.0
     outbound=entso_last({'documentType':'A11','in_Domain':NL,'out_Domain':other,'periodStart':start,'periodEnd':end}) or 0.0
@@ -131,10 +177,9 @@ def border_flow(other,start,end):
 
 def main():
     OUT.parent.mkdir(parents=True,exist_ok=True);now=datetime.now(timezone.utc)
-    data={'status':'no-data','generated_at':now.isoformat(),'measured_at':None,'load_mw':None,'generation_mw':None,'net_import_mw':None,'border_flows':{},
-          'generation_by_province':{},'offshore_wind_mw':{},'tennet':{},'sources':[],'warnings':[]}
+    data={'status':'no-data','generated_at':now.isoformat(),'measured_at':None,'load_mw':None,'generation_mw':None,'generation_mix':[],
+          'net_import_mw':None,'border_flows':{},'generation_by_province':{},'offshore_wind_mw':{},'tennet':{},'sources':[],'warnings':[]}
 
-    # TenneT is primary for transmission-visible measured load and operational balancing state.
     if TENNET_TOKEN:
         try:
             m=latest_tennet_metered()
@@ -147,7 +192,6 @@ def main():
         except Exception as e:data['warnings'].append('TenneT balance delta: '+str(e))
         data['sources'].append('TenneT')
 
-    # NED supplies Dutch generation plus regional/onshore/offshore detail; it also backs up load.
     if NED_TOKEN:
         try:
             load=latest_ned(0,59,2)
@@ -174,9 +218,15 @@ def main():
             except Exception as e:data['warnings'].append(f'NED offshore {name}: {e}')
         data['sources'].append('NED')
 
-    # ENTSO-E is optional: when its token arrives it adds physical cross-border flows.
     if ENTSO_TOKEN:
         start,end=entso_window()
+        try:
+            mix,mix_at=entso_generation_mix(start,end)
+            if mix:
+                data['generation_mix']=mix
+                data['generation_mw']=round(sum(row['mw'] for row in mix),1)
+                if mix_at:data['measured_at']=max(filter(None,[data['measured_at'],mix_at]))
+        except Exception as e:data['warnings'].append('ENTSO-E generation mix: '+str(e))
         for label,domain in BORDERS.items():
             try:data['border_flows'][label]=round(border_flow(domain,start,end),1)
             except Exception as e:data['warnings'].append(f'ENTSO-E {label}: {e}')
