@@ -1,0 +1,19 @@
+{
+  "name": "NL Live Grid",
+  "short_name": "NL Grid",
+  "description": "Live kaart van het Nederlandse hoogspanningsnet.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#07111c",
+  "theme_color": "#07111c",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
