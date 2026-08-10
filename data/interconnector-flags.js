@@ -2,9 +2,11 @@
   const UNKNOWN='#7f8b96';
   const COUNTRY_CAPACITY={DE:4000,BE:1700,GB:1000,NO2:700,DK1:700};
   const countryName={DE:'Duitsland',BE:'België',GB:'Groot-Brittannië',NO2:'Noorwegen',DK1:'Denemarken'};
-  const hasFlow=country=>!!(lastLive&&lastLive.border_flows&&Object.prototype.hasOwnProperty.call(lastLive.border_flows,country)&&Number.isFinite(Number(lastLive.border_flows[country])));
-  const capacityWidth=ic=>{const mw=Number(ic.capacity_mw)||700;return Math.max(2.5,Math.min(9,1.5+mw/550))};
   const countryCapacity=country=>COUNTRY_CAPACITY[country]||null;
+  const countryConnectorCount=country=>(window.NL_INTERCONNECTORS||[]).filter(x=>x.country===country).length||1;
+  const effectiveCapacity=ic=>{const own=Number(ic.capacity_mw);if(Number.isFinite(own)&&own>0)return own;const total=countryCapacity(ic.country);return total?total/countryConnectorCount(ic.country):700};
+  const hasFlow=country=>!!(lastLive&&lastLive.border_flows&&Object.prototype.hasOwnProperty.call(lastLive.border_flows,country)&&Number.isFinite(Number(lastLive.border_flows[country])));
+  const capacityWidth=ic=>{const mw=effectiveCapacity(ic);return Math.max(2.5,Math.min(9,1.5+mw/550))};
   const utilization=(country,mw)=>{const cap=countryCapacity(country);return cap?Math.min(1,Math.abs(mw)/cap):0};
   const colorFor=(country,mw)=>utilizationColor(utilization(country,mw));
   function flagPopup(ic){
@@ -21,8 +23,11 @@
   refreshInterconnectors=function(){for(const l of interconnectorLayers){const ic=l.__ic,known=hasFlow(ic.country),mw=known?Number(lastLive.border_flows[ic.country]):0,into=mw>=0;l.setStyle({color:known?colorFor(ic.country,mw):UNKNOWN,weight:capacityWidth(ic)});l.setPopupContent(flagPopup(ic));const p=l.getElement?.();if(p){p.classList.remove('xborder-in','xborder-out');if(known)p.classList.add(into?'xborder-in':'xborder-out')}}};
 
   const flags=[];
-  const sizeFor=ic=>{const mw=Number(ic.capacity_mw)||700;const s=Math.max(22,Math.min(42,17+Math.sqrt(mw)*.42));return Math.round(s)};
-  const makeIcon=ic=>{const s=sizeFor(ic);return L.divIcon({className:'interconnector-flag',html:`<span style="font-size:${Math.round(s*.72)}px;line-height:1">${ic.flag}</span>`,iconSize:[s,s],iconAnchor:[s/2,s/2]})};
+  // Use exactly the same capacity scale as the line thickness, so flag size and
+  // connection thickness cannot drift apart again. 2.5 px line -> 27 px flag;
+  // 9 px line -> 53 px flag.
+  const sizeFor=ic=>Math.round(17+capacityWidth(ic)*4);
+  const makeIcon=ic=>{const s=sizeFor(ic);return L.divIcon({className:'interconnector-flag',html:`<span style="font-size:${Math.round(s*.78)}px;line-height:1">${ic.flag}</span>`,iconSize:[s,s],iconAnchor:[s/2,s/2]})};
   for(const ic of window.NL_INTERCONNECTORS||[]){if(!ic.flag||!ic.to)continue;const marker=L.marker(ic.to,{icon:makeIcon(ic),interactive:true,zIndexOffset:600}).bindPopup(()=>flagPopup(ic),{className:'grid-popup'}).addTo(map);marker.__ic=ic;flags.push(marker)}
   const toggle=document.querySelector('#crossBorderToggle');
   const sync=()=>{const on=toggle?.checked!==false;for(const marker of flags){if(on){if(!map.hasLayer(marker))marker.addTo(map)}else if(map.hasLayer(marker))map.removeLayer(marker)}for(const l of interconnectorLayers)l.setStyle({opacity:on?.95:0,weight:on?capacityWidth(l.__ic):0})};
