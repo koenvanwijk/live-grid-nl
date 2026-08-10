@@ -36,14 +36,30 @@ jobs:
         run: |
           python scripts/update_live.py
           python scripts/enrich_provenance.py
+          python scripts/write_status.py
 
       - name: Show snapshot status
-        run: cat data/live.json
+        run: |
+          cat data/status.json
+          echo '## Live grid collector status' >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          cat data/status.json >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Validate snapshot
         run: |
           python -c "import json; data=json.load(open('data/live.json')); assert data['status']=='ok', data.get('warnings'); assert 'provenance' in data; assert 'generation_by_type' in data; assert data.get('schema_version') == 2; assert 'observations' in data"
           python scripts/validate_observations.py
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-grid-status-${{ github.run_id }}
+          path: |
+            data/live.json
+            data/status.json
+          retention-days: 14
 
       - name: Prepare static site
         run: touch .nojekyll
