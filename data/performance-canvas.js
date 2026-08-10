@@ -1,12 +1,16 @@
 (()=>{
   // app.js creates the map before its async ArcGIS requests resolve. Switching the
   // renderer here means the thousands of grid vectors that arrive afterwards use
-  // one canvas instead of thousands of animated SVG DOM nodes.
+  // one canvas instead of thousands of SVG DOM nodes.
   try{if(typeof map!=='undefined')map.options.preferCanvas=true}catch(e){}
 
-  // The internal flow overlay used CSS stroke animations on every grid segment.
-  // Direction is already represented by the live particle layers where meaningful;
-  // thousands of independent SVG animations are prohibitively expensive on mobile.
+  // Internal network flow is intentionally a deep-zoom detail. Keeping thousands
+  // of coloured flow copies alive while viewing the whole country is wasteful and
+  // adds no useful information. Four zoom steps from the default view is ~11.35.
+  window.INTERNAL_FLOW_ZOOM=11.35;
+
+  // CSS path animation is disabled globally. The actual MW particles on offshore
+  // and interconnectors use their dedicated canvas renderer instead.
   const style=document.createElement('style');
   style.textContent=`
     .leaflet-overlay-pane path.flow-forward,
@@ -21,21 +25,30 @@
   `;
   document.head.appendChild(style);
 
-  // 110/150 kV already have a base topology layer. Do not keep a second coloured
-  // flow copy of those thousands of segments; retain the flow overlay only for
-  // the 220/380 kV backbone.
-  function pruneLowVoltageFlowCopies(){
+  function syncInternalFlows(){
     try{
       if(typeof flowPaths==='undefined'||typeof map==='undefined')return;
-      for(let i=flowPaths.length-1;i>=0;i--){
-        const l=flowPaths[i],kv=(l?.__flowFeature?.properties||{}).SPANNINGSNIVEAU||'';
-        if(kv==='110 kV'||kv==='150 kV'){
-          if(map.hasLayer(l))map.removeLayer(l);
-          flowPaths.splice(i,1);
-        }
+      const deep=map.getZoom()>=window.INTERNAL_FLOW_ZOOM;
+      const flowOn=document.querySelector('#flowToggle')?.checked!==false;
+      const cableOn=document.querySelector('#cableToggle')?.checked!==false;
+      const active=new Set([...document.querySelectorAll('.filters input[type=checkbox][value]:checked')].map(x=>x.value));
+      for(const l of flowPaths){
+        const kv=(l?.__flowFeature?.properties||{}).SPANNINGSNIVEAU||'';
+        const show=deep&&flowOn&&active.has(kv)&&(!l.__flowCable||cableOn);
+        if(show){
+          if(!map.hasLayer(l))l.addTo(map);
+          if(typeof flowStyle==='function')l.setStyle(flowStyle(l.__flowFeature));
+        }else if(map.hasLayer(l))map.removeLayer(l);
       }
-    }catch(e){console.warn('performance flow prune',e)}
+    }catch(e){console.warn('internal flow LOD',e)}
   }
-  const timer=setInterval(pruneLowVoltageFlowCopies,200);
-  setTimeout(()=>{pruneLowVoltageFlowCopies();clearInterval(timer)},15000);
+
+  function boot(){
+    if(typeof map==='undefined')return;
+    map.on('zoomend',syncInternalFlows);
+    document.querySelectorAll('.filters input').forEach(el=>el.addEventListener('change',()=>setTimeout(syncInternalFlows,0)));
+    const timer=setInterval(syncInternalFlows,200);
+    setTimeout(()=>{syncInternalFlows();clearInterval(timer)},15000);
+  }
+  setTimeout(boot,0);
 })();
