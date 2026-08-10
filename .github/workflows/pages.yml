@@ -33,13 +33,15 @@ jobs:
           NED_TOKEN: ${{ secrets.NED_TOKEN }}
           TENNET_TOKEN: ${{ secrets.TENNET_TOKEN }}
           ENTSO_E_TOKEN: ${{ secrets.ENTSO_E_TOKEN }}
-        run: python scripts/update_live.py
+        run: |
+          python scripts/update_live.py
+          python scripts/enrich_provenance.py
 
       - name: Show snapshot status
         run: cat data/live.json
 
       - name: Validate snapshot
-        run: python -c "import json; data=json.load(open('data/live.json')); assert data['status']=='ok', data.get('warnings')"
+        run: python -c "import json; data=json.load(open('data/live.json')); assert data['status']=='ok', data.get('warnings'); assert 'provenance' in data; assert 'generation_by_type' in data"
 
       - name: Prepare static site
         run: touch .nojekyll
