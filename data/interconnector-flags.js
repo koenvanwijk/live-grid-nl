@@ -6,8 +6,9 @@
   refreshInterconnectors=function(){for(const l of interconnectorLayers){const ic=l.__ic,known=hasFlow(ic.country),mw=known?Number(lastLive.border_flows[ic.country]):0,into=mw>=0;l.setStyle({color:known?utilizationColor(interconnectorUtil(ic,mw)):UNKNOWN,weight:capacityWidth(ic)});const p=l.getElement?.();if(p){p.classList.remove('xborder-in','xborder-out');if(known)p.classList.add(into?'xborder-in':'xborder-out')}}};
 
   const flags=[];
-  const makeIcon=flag=>L.divIcon({className:'interconnector-flag',html:`<span>${flag}</span>`,iconSize:[28,22],iconAnchor:[14,11]});
-  for(const ic of window.NL_INTERCONNECTORS||[]){if(!ic.flag||!ic.to)continue;const marker=L.marker(ic.to,{icon:makeIcon(ic.flag),interactive:false,zIndexOffset:600}).addTo(map);flags.push(marker)}
+  const flagSize=ic=>{const mw=Math.max(0,Number(ic.capacity_mw)||700);return Math.max(20,Math.min(44,15+0.52*Math.sqrt(mw)))};
+  const makeIcon=ic=>{const size=flagSize(ic),w=size*1.28;return L.divIcon({className:'interconnector-flag',html:`<span style="font-size:${size}px;line-height:1">${ic.flag}</span>`,iconSize:[w,size],iconAnchor:[w/2,size/2]})};
+  for(const ic of window.NL_INTERCONNECTORS||[]){if(!ic.flag||!ic.to)continue;const marker=L.marker(ic.to,{icon:makeIcon(ic),interactive:false,zIndexOffset:600}).addTo(map);flags.push(marker)}
   const toggle=document.querySelector('#crossBorderToggle');
   const sync=()=>{const on=toggle?.checked!==false;for(const marker of flags){if(on){if(!map.hasLayer(marker))marker.addTo(map)}else if(map.hasLayer(marker))map.removeLayer(marker)}for(const l of interconnectorLayers)l.setStyle({opacity:on?.95:0,weight:on?capacityWidth(l.__ic):0})};
   document.querySelectorAll('.filters input').forEach(el=>el.addEventListener('change',sync));
