@@ -1,0 +1,26 @@
+(function(){
+const layers=[],particles=[];let offshore=[],lastSnapshot=null,raf=null,lastFrame=0;
+const CAPACITY_WEIGHT=mw=>Math.max(2.5,Math.min(11,2.2+Math.sqrt(Math.max(0,Number(mw)||0))/10));
+const DOT_MW=100,MAX_DOTS=36;
+const DE_CORRIDORS=[
+ {id:'DE-MEEDEN',name:'Meeden–Diele',capacity_mw:null,from:[53.126,6.927],to:[53.060,7.286],note:'380 kV grensverbinding · fysieke corridor'},
+ {id:'DE-HENGELO',name:'Hengelo–Gronau',capacity_mw:null,from:[52.265,6.793],to:[52.190,7.036],note:'380 kV grensverbinding · fysieke corridor'},
+ {id:'DE-DOETINCHEM',name:'Doetinchem–Wesel',capacity_mw:1500,from:[51.946,6.293],to:[51.658,6.595],note:'380 kV grensverbinding · 1.500 MW projectcapaciteit'},
+ {id:'DE-MAASBRACHT',name:'Maasbracht–Oberzier',capacity_mw:null,from:[51.151,5.889],to:[50.836,6.423],note:'380 kV grensverbinding · fysieke corridor'}
+];
+function flow(country){return Number(lastSnapshot?.border_flows?.[country])||0}
+function addParticle(a,b,phase,opts={}){const dot=L.circleMarker(a,{radius:opts.radius||2.7,color:opts.color||'#effcff',weight:.5,fillColor:opts.color||'#effcff',fillOpacity:opts.opacity||.9,opacity:opts.opacity||.9,interactive:false,pane:'markerPane'}).addTo(map);dot.__flow={a,b,phase,speed:opts.speed||.00012,enabled:true};particles.push(dot);return dot}
+function syncParticleSet(owner,a,b,mw,opts={}){const wanted=Math.min(MAX_DOTS,Math.max(0,Math.round(Math.abs(mw)/DOT_MW)));const existing=particles.filter(p=>p.__owner===owner);while(existing.length>wanted){const p=existing.pop();map.removeLayer(p);particles.splice(particles.indexOf(p),1)}while(existing.length<wanted){const p=addParticle(a,b,(existing.length+.5)/Math.max(1,wanted),opts);p.__owner=owner;existing.push(p)}const forward=mw>=0;for(const p of existing){p.__flow.a=forward?a:b;p.__flow.b=forward?b:a;p.__flow.enabled=true}}
+function interp(a,b,t){return[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t]}
+function animate(ts){const dt=Math.min(50,ts-lastFrame||16);lastFrame=ts;for(const p of particles){if(!p.__flow?.enabled)continue;p.__flow.phase=(p.__flow.phase+p.__flow.speed*dt)%1;p.setLatLng(interp(p.__flow.a,p.__flow.b,p.__flow.phase))}raf=requestAnimationFrame(animate)}
+function addLegend(){const c=L.control({position:'bottomleft'});c.onAdd=()=>{const d=L.DomUtil.create('div','flow-key glass');d.innerHTML='<b>STROOM</b><span><i></i> ≈ 100 MW</span><span>lijndikte = capaciteit</span>';return d};c.addTo(map)}
+function hideAggregateGermany(){for(const l of (typeof interconnectorLayers!=='undefined'?interconnectorLayers:[])){if(l.__ic?.id==='DE-NL')l.setStyle({opacity:0,weight:0})}}
+function addGermanyCorridors(){hideAggregateGermany();for(const c of DE_CORRIDORS){const w=CAPACITY_WEIGHT(c.capacity_mw||1000);const line=L.polyline([c.from,c.to],{color:'#8ca7bb',weight:w,opacity:.72,lineCap:'round'}).bindPopup(`<b>${c.name}</b><small>${c.note}</small><small class="provenance-line provenance-static">○ statisch · fysieke corridor</small><small>Actuele NL–DE grensflow wordt alleen als totaal gemeten; corridorverdeling nog niet als meting getoond.</small>`,{className:'grid-popup'}).addTo(map);layers.push(line)}}
+function drawForeignCapacity(){for(const ic of (window.NL_INTERCONNECTORS||[])){if(ic.country==='DE')continue;const w=CAPACITY_WEIGHT(ic.capacity_mw||800);const base=L.polyline([ic.from,ic.to],{color:'#20394b',weight:w+2,opacity:.85,lineCap:'round',interactive:false}).addTo(map);base.bringToBack();layers.push(base)}}
+async function loadOffshore(){try{const r=await fetch(`data/offshore-wind.json?t=${Date.now()}`,{cache:'no-store'});if(!r.ok)return;offshore=(await r.json()).parks||[];for(const p of offshore){const w=CAPACITY_WEIGHT(p.capacity_mw);const base=L.polyline([[p.lat,p.lon],[p.landing_lat,p.landing_lon]],{color:'#174358',weight:w,opacity:.6,lineCap:'round',interactive:false}).addTo(map);layers.push(base)}}catch(e){console.warn('offshore flow overlay',e)}}
+function offshoreMW(p){const x=lastSnapshot?.offshore_wind_mw?.[p.name];if(x&&Number.isFinite(Number(x.mw)))return Number(x.mw);const total=Number(lastSnapshot?.generation_by_type?.['Wind Offshore']);if(!Number.isFinite(total))return 0;const cap=offshore.reduce((s,x)=>s+Number(x.capacity_mw||0),0);return cap?total*Number(p.capacity_mw||0)/cap:0}
+function refresh(){try{lastSnapshot=(typeof lastLive!=='undefined'&&lastLive)||lastSnapshot}catch(e){};for(const ic of (window.NL_INTERCONNECTORS||[])){if(ic.country==='DE')continue;const mw=flow(ic.country);const into=mw>=0;syncParticleSet(`border:${ic.id}`,into?ic.to:ic.from,into?ic.from:ic.to,Math.abs(mw),{color:'#e9fbff',radius:2.8,speed:.00011})}for(const p of offshore){const mw=offshoreMW(p);syncParticleSet(`offshore:${p.name}`,[p.lat,p.lon],[p.landing_lat,p.landing_lon],Math.abs(mw),{color:'#7ee6ff',radius:2.5,speed:.00014})}}
+async function pull(){try{const r=await fetch(`data/live.json?t=${Date.now()}`,{cache:'no-store'});if(r.ok)lastSnapshot=await r.json()}catch(e){}refresh()}
+async function boot(){await loadOffshore();drawForeignCapacity();setTimeout(addGermanyCorridors,1500);addLegend();await pull();setInterval(pull,60000);if(!raf)raf=requestAnimationFrame(animate)}
+setTimeout(boot,1800);
+})();
