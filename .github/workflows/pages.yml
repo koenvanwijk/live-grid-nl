@@ -41,7 +41,9 @@ jobs:
         run: cat data/live.json
 
       - name: Validate snapshot
-        run: python -c "import json; data=json.load(open('data/live.json')); assert data['status']=='ok', data.get('warnings'); assert 'provenance' in data; assert 'generation_by_type' in data"
+        run: |
+          python -c "import json; data=json.load(open('data/live.json')); assert data['status']=='ok', data.get('warnings'); assert 'provenance' in data; assert 'generation_by_type' in data; assert data.get('schema_version') == 2; assert 'observations' in data"
+          python scripts/validate_observations.py
 
       - name: Prepare static site
         run: touch .nojekyll
