@@ -1,6 +1,6 @@
-const STATIC_CACHE='nl-grid-static-v5';
-const RUNTIME_CACHE='nl-grid-runtime-v5';
-const STATIC_ASSETS=['./','./index.html','./styles.css?v=10','./app.js?v=10','./data/interconnectors.js?v=2','./data/injections.js?v=2','./data/interconnector-flow.js?v=1','./data/flow-particles.js?v=3','./manifest.webmanifest','./icon.svg'];
+const STATIC_CACHE='nl-grid-static-v6';
+const RUNTIME_CACHE='nl-grid-runtime-v6';
+const STATIC_ASSETS=['./','./index.html','./styles.css?v=10','./app.js?v=10','./data/interconnectors.js?v=2','./data/injections.js?v=2','./data/interconnector-flow.js?v=1','./data/flow-particles.js?v=4','./manifest.webmanifest','./icon.svg'];
 
 self.addEventListener('install',event=>{
   event.waitUntil(caches.open(STATIC_CACHE).then(cache=>cache.addAll(STATIC_ASSETS)).then(()=>self.skipWaiting()));
