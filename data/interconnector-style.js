@@ -1,0 +1,10 @@
+// Cross-border presentation: width encodes nominal capacity; colour encodes measured utilisation.
+(function(){
+  const UNKNOWN='#7f8b96';
+  function hasFlow(country){return !!(lastLive&&lastLive.border_flows&&Object.prototype.hasOwnProperty.call(lastLive.border_flows,country)&&Number.isFinite(Number(lastLive.border_flows[country])))}
+  function width(ic){const mw=Number(ic.capacity_mw)||700;return Math.max(2.5,Math.min(9,1.5+mw/550))}
+  function colour(ic){if(!hasFlow(ic.country))return UNKNOWN;return utilizationColor(interconnectorUtil(ic,Number(lastLive.border_flows[ic.country])))}
+  addInterconnectors=function(){for(const ic of window.NL_INTERCONNECTORS||[]){const known=hasFlow(ic.country),mw=known?Number(lastLive.border_flows[ic.country]):0,into=mw>=0;const line=L.polyline([ic.from,ic.to],{color:known?utilizationColor(interconnectorUtil(ic,mw)):UNKNOWN,weight:width(ic),opacity:.95,dashArray:'12 10',className:known?(into?'xborder-in':'xborder-out'):''}).bindPopup(`<b>${ic.name}</b><small>${ic.type}${ic.capacity_mw?` · ${ic.capacity_mw.toLocaleString('nl-NL')} MW nominale capaciteit`:''}</small><small id="ic-${ic.id}">${known?`${Math.abs(mw).toLocaleString('nl-NL')} MW · ${into?'naar Nederland':'uit Nederland'}`:'Geen actuele flowmeting · grijs'}</small><small>${ic.note}</small>`,{className:'grid-popup'}).addTo(map);line.__ic=ic;interconnectorLayers.push(line)}};
+  refreshInterconnectors=function(){for(const l of interconnectorLayers){const ic=l.__ic,known=hasFlow(ic.country),mw=known?Number(lastLive.border_flows[ic.country]):0,into=mw>=0;l.setStyle({color:known?utilizationColor(interconnectorUtil(ic,mw)):UNKNOWN,weight:width(ic)});const p=l.getElement?.();if(p){p.classList.remove('xborder-in','xborder-out');if(known)p.classList.add(into?'xborder-in':'xborder-out')}}};
+  document.querySelectorAll('.filters input').forEach(el=>el.addEventListener('change',()=>{const on=document.querySelector('#crossBorderToggle')?.checked!==false;for(const l of interconnectorLayers)l.setStyle({weight:on?width(l.__ic):0,color:colour(l.__ic)})}));
+})();
