@@ -20,7 +20,6 @@ def num(v):
     except (TypeError,ValueError):return None
 
 def power_mw(props):
-    # Current RIVM schema uses `kw`. Keep semantic fallbacks for schema evolution.
     for key in ('kw','vermogen_kw','power_kw'):
         x=num(props.get(key))
         if x is not None and x>0:return x/1000.0
@@ -79,11 +78,9 @@ def connected_groups(points):
     return list(groups.values())
 
 def split_long_chain(group):
-    # Single-link can chain adjacent parks together. Recursively split only when
-    # the weighted cluster radius becomes implausibly large.
-    c=centroid(group);far=max((dist(c,p),p) for p in group)[0] if group else 0
+    c=centroid(group)
+    far=max((dist(c,p) for p in group),default=0)
     if far<=MAX_CLUSTER_RADIUS_KM or len(group)<4:return [group]
-    # Seed two groups with the farthest pair, then assign to nearest seed.
     a=max(group,key=lambda p:dist(c,p));b=max(group,key=lambda p:dist(a,p))
     left=[];right=[]
     for p in group:(left if dist(p,a)<=dist(p,b) else right).append(p)
