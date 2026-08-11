@@ -13,8 +13,6 @@
   addInterconnectors=function(){for(const ic of window.NL_INTERCONNECTORS||[]){const known=hasFlow(ic.country),mw=known?Number(lastLive.border_flows[ic.country]):0,into=mw>=0;const line=L.polyline([ic.from,ic.to],{color:known?colorFor(ic.country,mw):UNKNOWN,weight:capacityWidth(ic),opacity:.95,dashArray:'12 10',className:known?(into?'xborder-in':'xborder-out'):''}).bindPopup(flagPopup(ic),{className:'grid-popup'}).addTo(map);line.__ic=ic;interconnectorLayers.push(line)}};
   refreshInterconnectors=function(){for(const l of interconnectorLayers){const ic=l.__ic,known=hasFlow(ic.country),mw=known?Number(lastLive.border_flows[ic.country]):0,into=mw>=0;l.setStyle({color:known?colorFor(ic.country,mw):UNKNOWN,weight:capacityWidth(ic)});l.setPopupContent(flagPopup(ic));const p=l.getElement?.();if(p){p.classList.remove('xborder-in','xborder-out');if(known)p.classList.add(into?'xborder-in':'xborder-out')}}};
 
-  // Put flags in their own pane above animated canvases and ordinary markers.
-  // This also gives them a stable hit target on touch devices.
   if(!map.getPane('interconnectorFlags')){
     const pane=map.createPane('interconnectorFlags');
     pane.style.zIndex='690';
@@ -24,7 +22,7 @@
   style.textContent='.interconnector-flag{background:transparent!important;border:0!important;cursor:pointer!important;pointer-events:auto!important;touch-action:manipulation}.interconnector-flag span{display:flex;width:100%;height:100%;align-items:center;justify-content:center;pointer-events:none;filter:drop-shadow(0 1px 2px rgba(0,0,0,.75))}';
   document.head.appendChild(style);
 
-  const flags=[];const sizeFor=ic=>Math.round(17+capacityWidth(ic)*4);const makeIcon=ic=>{const s=sizeFor(ic);return L.divIcon({className:'interconnector-flag',html:`<span style="font-size:${Math.round(s*.78)}px;line-height:1">${ic.flag}</span>`,iconSize:[s,s],iconAnchor:[s/2,s/2]})};
+  const flags=[];const sizeFor=ic=>window.capacityDiameter(effectiveCapacity(ic));const makeIcon=ic=>{const s=sizeFor(ic);return L.divIcon({className:'interconnector-flag',html:`<span style="font-size:${Math.round(s*.78)}px;line-height:1">${ic.flag}</span>`,iconSize:[s,s],iconAnchor:[s/2,s/2]})};
   for(const ic of window.NL_INTERCONNECTORS||[]){
     if(!ic.flag||!ic.to)continue;
     const marker=L.marker(ic.to,{icon:makeIcon(ic),interactive:true,pane:'interconnectorFlags',keyboard:true,riseOnHover:true,riseOffset:1000,title:`${countryName[ic.country]||ic.country} · ${ic.name}`})
