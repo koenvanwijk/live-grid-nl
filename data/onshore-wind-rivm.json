@@ -1,0 +1,1 @@
+{"source":{"provider":"RIVM","dataset":"Windturbines – vermogen","wfs_type":"alo:rivm_windturbines_vermogen_actueel","license":"publiek domein"},"generated_from_wfs":true,"threshold_mw":25.0,"cluster_link_km":2.5,"turbine_count":0,"total_onshore_mw":0,"clusters_ge_25mw":0,"clusters":[],"turbines":[]}
