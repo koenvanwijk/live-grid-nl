@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""Fetch RIVM turbine power WFS and build onshore wind data.
-
-This pipeline is intentionally strict: an empty or implausible ingest is an error
-and must never be committed as a successful refresh.
-"""
+"""Fetch RIVM turbine power WFS and build validated Dutch onshore wind data."""
 import json, math, pathlib, urllib.parse, urllib.request
 
 WFS='https://data.rivm.nl/geo/alo/wfs'
@@ -11,71 +7,61 @@ TYPE='alo:rivm_windturbines_vermogen_actueel'
 OUT=pathlib.Path(__file__).resolve().parents[1]/'data'/'onshore-wind-rivm.json'
 MIN_CLUSTER_MW=25.0
 LINK_KM=2.5
+MAX_CLUSTER_RADIUS_KM=8.0
 
 def fetch():
     q=urllib.parse.urlencode({'service':'WFS','version':'2.0.0','request':'GetFeature','typeNames':TYPE,'outputFormat':'application/json','srsName':'EPSG:4326'})
-    with urllib.request.urlopen(WFS+'?'+q,timeout=90) as r:
-        raw=json.load(r)
-    features=raw.get('features',[])
-    print(f'RIVM raw features: {len(features)}; top-level keys: {list(raw)[:12]}')
-    if features:
-        sample=features[0]
-        print('RIVM sample geometry:',json.dumps(sample.get('geometry'),ensure_ascii=False)[:500])
-        print('RIVM sample properties:',json.dumps(sample.get('properties',{}),ensure_ascii=False)[:2000])
-    return raw
+    with urllib.request.urlopen(WFS+'?'+q,timeout=90) as r:return json.load(r)
 
 def num(v):
     try:
-        if isinstance(v,str): v=v.replace(',','.').strip()
+        if isinstance(v,str):v=v.replace(',','.').strip()
         return float(v)
     except (TypeError,ValueError):return None
 
 def power_mw(props):
-    candidates=[]
+    # Current RIVM schema uses `kw`. Keep semantic fallbacks for schema evolution.
+    for key in ('kw','vermogen_kw','power_kw'):
+        x=num(props.get(key))
+        if x is not None and x>0:return x/1000.0
+    for key in ('mw','vermogen_mw','power_mw'):
+        x=num(props.get(key))
+        if x is not None and x>0:return x
     for k,v in props.items():
-        lk=k.lower()
-        if 'vermogen' in lk or 'power' in lk:
-            x=num(v)
-            if x is not None:candidates.append((lk,x))
-    # Prefer explicitly named MW/kW fields, then generic vermogen/power.
-    for lk,x in candidates:
-        if 'mw' in lk:return x
-    for lk,x in candidates:
-        if 'kw' in lk:return x/1000.0
-    for lk,x in candidates:
-        if x>100:return x/1000.0
-        if 0<x<30:return x
+        lk=k.lower();x=num(v)
+        if x is None or x<=0:continue
+        if 'vermogen' in lk or 'power' in lk:return x/1000.0 if x>100 else x
     return None
 
 def lonlat(g):
-    if not g:return None
+    if not g or g.get('type')!='Point':return None
     c=g.get('coordinates')
-    if g.get('type')=='Point' and isinstance(c,list) and len(c)>=2:
-        x,y=float(c[0]),float(c[1])
-        # EPSG:4326 can be returned as lon/lat or lat/lon depending on WFS axis rules.
-        if 3<=x<=8 and 50<=y<=54:return x,y
-        if 50<=x<=54 and 3<=y<=8:return y,x
-        return x,y
+    if not isinstance(c,list) or len(c)<2:return None
+    x,y=float(c[0]),float(c[1])
+    if 3<=x<=8 and 50<=y<=54:return x,y
+    if 50<=x<=54 and 3<=y<=8:return y,x
     return None
 
-def likely_onshore(lon,lat):
-    if not (3.25<=lon<=7.25 and 50.70<=lat<=53.65): return False
-    coast=((50.7,3.35),(51.4,3.55),(51.9,4.0),(52.2,4.35),(52.6,4.55),(53.0,4.75),(53.65,5.1))
-    for (a,x1),(b,x2) in zip(coast,coast[1:]):
-        if a<=lat<=b:
-            edge=x1+(x2-x1)*(lat-a)/(b-a)
-            return lon>=edge
-    return True
+def is_dutch_onshore(props,lon,lat):
+    land=str(props.get('land') or '').strip().lower()
+    surface=str(props.get('ondergrond') or '').strip().lower()
+    if land not in ('nederland','netherlands','nl'):return False
+    if surface and surface!='land':return False
+    return 3.2<=lon<=7.3 and 50.7<=lat<=53.7
 
 def dist(a,b):
     lat1,lat2=math.radians(a['lat']),math.radians(b['lat']);dlat=lat2-lat1;dlon=math.radians(b['lon']-a['lon'])
     h=math.sin(dlat/2)**2+math.cos(lat1)*math.cos(lat2)*math.sin(dlon/2)**2
     return 12742*math.asin(math.sqrt(h))
 
-def cluster(points):
-    n=len(points); parent=list(range(n))
+def centroid(group):
+    w=sum(p['capacity_mw'] for p in group) or len(group)
+    return {'lat':sum(p['lat']*p['capacity_mw'] for p in group)/w,'lon':sum(p['lon']*p['capacity_mw'] for p in group)/w}
+
+def connected_groups(points):
+    n=len(points);parent=list(range(n))
     def find(x):
-        while parent[x]!=x: parent[x]=parent[parent[x]];x=parent[x]
+        while parent[x]!=x:parent[x]=parent[parent[x]];x=parent[x]
         return x
     def union(a,b):
         a,b=find(a),find(b)
@@ -90,32 +76,47 @@ def cluster(points):
                     if j>i and dist(p,points[j])<=LINK_KM:union(i,j)
     groups={}
     for i,p in enumerate(points):groups.setdefault(find(i),[]).append(p)
+    return list(groups.values())
+
+def split_long_chain(group):
+    # Single-link can chain adjacent parks together. Recursively split only when
+    # the weighted cluster radius becomes implausibly large.
+    c=centroid(group);far=max((dist(c,p),p) for p in group)[0] if group else 0
+    if far<=MAX_CLUSTER_RADIUS_KM or len(group)<4:return [group]
+    # Seed two groups with the farthest pair, then assign to nearest seed.
+    a=max(group,key=lambda p:dist(c,p));b=max(group,key=lambda p:dist(a,p))
+    left=[];right=[]
+    for p in group:(left if dist(p,a)<=dist(p,b) else right).append(p)
+    if not left or not right:return [group]
+    return split_long_chain(left)+split_long_chain(right)
+
+def cluster(points):
+    groups=[]
+    for g in connected_groups(points):groups.extend(split_long_chain(g))
     out=[]
-    for g in groups.values():
+    for g in groups:
         mw=sum(p['capacity_mw'] for p in g)
         if mw<MIN_CLUSTER_MW:continue
-        out.append({'id':f"rivm-cluster-{len(out)+1}",'lat':sum(p['lat']*p['capacity_mw'] for p in g)/mw,'lon':sum(p['lon']*p['capacity_mw'] for p in g)/mw,'capacity_mw':round(mw,3),'turbines':len(g),'source':'RIVM Windturbines – vermogen','status':'operationeel','cluster_method':f'single-link <= {LINK_KM} km'})
+        c=centroid(g)
+        out.append({'id':f'rivm-cluster-{len(out)+1}','lat':round(c['lat'],6),'lon':round(c['lon'],6),'capacity_mw':round(mw,3),'turbines':len(g),'source':'RIVM Windturbines – vermogen','status':'operationeel','cluster_method':f'proximity {LINK_KM} km; max radius {MAX_CLUSTER_RADIUS_KM} km'})
     return sorted(out,key=lambda x:x['capacity_mw'],reverse=True)
 
 def main():
-    raw=fetch(); pts=[]; no_power=0; bad_geometry=0; off_or_outside=0
-    for f in raw.get('features',[]):
-        ll=lonlat(f.get('geometry'))
-        if not ll:
-            bad_geometry+=1;continue
-        mw=power_mw(f.get('properties',{}))
-        if not mw or mw<=0:
-            no_power+=1;continue
+    raw=fetch();features=raw.get('features',[]);pts=[];no_power=0;bad_geometry=0;excluded=0
+    print(f'RIVM raw features: {len(features)}')
+    for f in features:
+        props=f.get('properties',{});ll=lonlat(f.get('geometry'))
+        if not ll:bad_geometry+=1;continue
         lon,lat=ll
-        if not likely_onshore(lon,lat):
-            off_or_outside+=1;continue
-        props=f.get('properties',{})
-        pts.append({'id':str(f.get('id','')),'lat':round(lat,6),'lon':round(lon,6),'capacity_mw':round(mw,4),'name':props.get('naam') or props.get('Naam') or props.get('windpark') or props.get('Windpark')})
-    total=round(sum(p['capacity_mw'] for p in pts),2)
-    clusters=cluster(pts)
-    print(f'RIVM parsed: {len(pts)} onshore; {total} MW; no_power={no_power}; bad_geometry={bad_geometry}; outside/offshore={off_or_outside}; clusters>=25MW={len(clusters)}')
-    if len(raw.get('features',[]))==0:raise RuntimeError('RIVM WFS returned zero raw features')
-    if len(pts)<500 or total<1000:raise RuntimeError(f'RIVM ingest implausible: {len(pts)} turbines, {total} MW')
-    data={'source':{'provider':'RIVM','dataset':'Windturbines – vermogen','wfs_type':TYPE,'license':'publiek domein'},'generated_from_wfs':True,'threshold_mw':MIN_CLUSTER_MW,'cluster_link_km':LINK_KM,'turbine_count':len(pts),'total_onshore_mw':total,'turbines_without_power':no_power,'bad_geometry':bad_geometry,'excluded_offshore_or_outside':off_or_outside,'clusters_ge_25mw':len(clusters),'clusters':clusters,'turbines':pts}
+        if not is_dutch_onshore(props,lon,lat):excluded+=1;continue
+        mw=power_mw(props)
+        if not mw:no_power+=1;continue
+        pts.append({'id':str(f.get('id','')),'lat':round(lat,6),'lon':round(lon,6),'capacity_mw':round(mw,4),'name':props.get('naam'),'type':props.get('wt_type'),'municipality':props.get('gem_naam'),'province':props.get('prov_naam'),'source_date':props.get('datum')})
+    total=round(sum(p['capacity_mw'] for p in pts),2);clusters=cluster(pts)
+    print(f'RIVM parsed: {len(pts)} onshore; {total} MW; no_power={no_power}; bad_geometry={bad_geometry}; excluded={excluded}; clusters>=25MW={len(clusters)}')
+    if not features:raise RuntimeError('RIVM WFS returned zero raw features')
+    if len(pts)<1500 or not 4000<=total<=10000:raise RuntimeError(f'RIVM ingest implausible: {len(pts)} turbines, {total} MW')
+    if len(clusters)<10:raise RuntimeError(f'RIVM clustering implausible: only {len(clusters)} clusters >=25 MW')
+    data={'source':{'provider':'RIVM','dataset':'Windturbines – vermogen','wfs_type':TYPE,'license':'publiek domein'},'generated_from_wfs':True,'threshold_mw':MIN_CLUSTER_MW,'cluster_link_km':LINK_KM,'max_cluster_radius_km':MAX_CLUSTER_RADIUS_KM,'raw_feature_count':len(features),'turbine_count':len(pts),'total_onshore_mw':total,'turbines_without_power':no_power,'bad_geometry':bad_geometry,'excluded_non_dutch_or_offshore':excluded,'clusters_ge_25mw':len(clusters),'clusters':clusters,'turbines':pts}
     OUT.write_text(json.dumps(data,ensure_ascii=False,separators=(',',':'))+'\n')
 if __name__=='__main__':main()
