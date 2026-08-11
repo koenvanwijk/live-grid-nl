@@ -1,28 +1,9 @@
-const STATIC_CACHE='nl-grid-static-v18';
-const RUNTIME_CACHE='nl-grid-runtime-v18';
-const STATIC_ASSETS=['./','./index.html','./styles.css?v=15','./app.js?v=13','./data/performance-canvas.js?v=4','./data/interconnectors.js?v=4','./data/interconnector-flags.js?v=7','./data/injections.js?v=6','./data/solar-storage.js?v=3','./data/interconnector-flow.js?v=2','./data/flow-particles.js?v=7','./data/overview-lod.js?v=4','./data/border-flow-details.css?v=1','./data/border-flow-details.js?v=1','./manifest.webmanifest','./icon.svg'];
+const STATIC_CACHE='nl-grid-static-v19';
+const RUNTIME_CACHE='nl-grid-runtime-v19';
+const STATIC_ASSETS=['./','./index.html','./styles.css?v=15','./app.js?v=13','./data/performance-canvas.js?v=4','./data/interconnectors.js?v=4','./data/interconnector-flags.js?v=7','./data/injections.js?v=6','./data/solar-storage.js?v=4','./data/onshore-wind.css?v=1','./data/interconnector-flow.js?v=2','./data/flow-particles.js?v=7','./data/overview-lod.js?v=4','./data/border-flow-details.css?v=1','./data/border-flow-details.js?v=1','./manifest.webmanifest','./icon.svg'];
 
-self.addEventListener('install',event=>{
-  event.waitUntil(caches.open(STATIC_CACHE).then(cache=>cache.addAll(STATIC_ASSETS)).then(()=>self.skipWaiting()));
-});
-
-self.addEventListener('activate',event=>{
-  event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>![STATIC_CACHE,RUNTIME_CACHE].includes(k)).map(k=>caches.delete(k)))).then(()=>self.clients.claim()));
-});
-
-function isLiveData(url){return url.pathname.endsWith('/data/live.json')}
+self.addEventListener('install',event=>{event.waitUntil(caches.open(STATIC_CACHE).then(cache=>cache.addAll(STATIC_ASSETS)).then(()=>self.skipWaiting()))});
+self.addEventListener('activate',event=>{event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>![STATIC_CACHE,RUNTIME_CACHE].includes(k)).map(k=>caches.delete(k)))).then(()=>self.clients.claim()))});
+function isLiveData(url){return url.pathname.endsWith('/data/live.json')||url.pathname.endsWith('/data/onshore-wind-rivm.json')}
 function isCacheableRuntime(url){return url.origin===self.location.origin||url.hostname.endsWith('cartocdn.com')||url.hostname==='unpkg.com'||url.hostname.endsWith('arcgis.com')||url.hostname.endsWith('pdok.nl')}
-
-self.addEventListener('fetch',event=>{
-  if(event.request.method!=='GET')return;
-  const url=new URL(event.request.url);
-  if(isLiveData(url)){event.respondWith(fetch(event.request,{cache:'no-store'}));return}
-  if(!isCacheableRuntime(url))return;
-  event.respondWith(fetch(event.request).then(response=>{
-    if(response&&(response.ok||response.type==='opaque')){
-      const copy=response.clone();
-      caches.open(RUNTIME_CACHE).then(cache=>cache.put(event.request,copy));
-    }
-    return response;
-  }).catch(()=>caches.match(event.request)));
-});
+self.addEventListener('fetch',event=>{if(event.request.method!=='GET')return;const url=new URL(event.request.url);if(isLiveData(url)){event.respondWith(fetch(event.request,{cache:'no-store'}).catch(()=>caches.match(event.request)));return}if(!isCacheableRuntime(url))return;event.respondWith(fetch(event.request).then(response=>{if(response&&(response.ok||response.type==='opaque')){const copy=response.clone();caches.open(RUNTIME_CACHE).then(cache=>cache.put(event.request,copy))}return response}).catch(()=>caches.match(event.request)))})
