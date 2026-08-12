@@ -2,6 +2,11 @@ name: Update solar park geodata
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/update_solar_parks.py'
+      - '.github/workflows/update-solar-parks.yml'
   schedule:
     - cron: '23 5 * * 1'
 
