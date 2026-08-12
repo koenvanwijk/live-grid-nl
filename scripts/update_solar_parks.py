@@ -42,6 +42,10 @@ def item_data(item_id):
     return get_json(f'{ARCGIS}/{item_id}/data',{'f':'json'})
 
 
+def item_metadata(item_id):
+    return get_json(f'{ARCGIS}/{item_id}',{'f':'json'})
+
+
 def discover_item_ids(obj):
     ids=set()
     for d in walk(obj):
@@ -64,7 +68,17 @@ def resolve_services():
     while queue:
         iid=queue.pop(0)
         if iid in seen: continue
-        seen.add(iid); data=item_data(iid); services |= discover_services(data)
+        seen.add(iid)
+        try:
+            metadata=item_metadata(iid)
+            service_url=metadata.get('url')
+            if isinstance(service_url,str) and re.search(r'/(?:FeatureServer|MapServer)(?:/\d+)?$',service_url,re.I):
+                services.add(service_url.rstrip('/'))
+            data=item_data(iid)
+        except Exception as e:
+            print(f'skip linked item {iid}: {e}')
+            continue
+        services |= discover_services(data)
         queue += [x for x in discover_item_ids(data) if x not in seen]
     if not services: raise RuntimeError('No ArcGIS FeatureServer/MapServer found behind Zon op Kaart dashboard')
     return sorted(services)
@@ -110,16 +124,18 @@ def haversine(a,b):
 def fetch_candidate_layer(url):
     meta=get_json(url,{'f':'json'}); fields=meta.get('fields',[])
     cap=field_for(fields,('vermogen',),('capacity',),('mwp',),('kwp',))
-    realised=field_for(fields,('gerealiseerd',),('realisatie','jaar'),('jaar','realisatie'),('status',))
+    realised=field_for(fields,('gerealiseerd',),('gerealisee',),('realisatie','jaar'),('jaar','realisatie'),('status',))
     municipality=field_for(fields,('gemeente',),('municipality',))
+    province=field_for(fields,('provincie',),('province',))
     name=field_for(fields,('project','naam'),('naam',),('name',),('plaats','lokatie'),('plaats','locatie'))
     if not cap or not realised:return None
-    q=f'{url}/query'; ids=get_json(q,{'f':'json','where':'1=1','returnIdsOnly':'true'}).get('objectIds') or []
-    if not ids:return None
-    rows=[]
-    for i in range(0,len(ids),500):
-        d=get_json(q,{'f':'json','objectIds':','.join(map(str,ids[i:i+500])),'outFields':'*','returnGeometry':'true','outSR':4326})
-        rows.extend(d.get('features',[]))
+    q=f'{url}/query'; rows=[]; offset=0
+    while True:
+        d=get_json(q,{'f':'json','where':'1=1','outFields':'*','returnGeometry':'true','outSR':4326,'resultOffset':offset,'resultRecordCount':500,'orderByFields':meta.get('objectIdField')})
+        page=d.get('features',[])
+        if not page:break
+        rows.extend(page); offset+=len(page)
+        if not d.get('exceededTransferLimit'):break
     alias={f.get('name',''):f.get('alias','') for f in fields}
     parsed=[]
     for f in rows:
@@ -127,11 +143,11 @@ def fetch_candidate_layer(url):
         if not xy or mw is None:continue
         rv=a.get(realised); rn=norm(rv)
         # Zon op Kaart documents year 0 as not realised. Accept positive years and explicit realised/live values.
-        live=(isinstance(rv,(int,float)) and float(rv)>0) or bool(re.search(r'gerealiseerd|operationeel|in gebruik|realised|operational',rn))
+        live=(isinstance(rv,(int,float)) and float(rv)>0) or rn in ('ja','yes','true') or bool(re.search(r'gerealiseerd|operationeel|in gebruik|realised|operational',rn))
         if not live:continue
         lon,lat=xy
         if not (50.6<=lat<=53.7 and 3.0<=lon<=7.4):continue
-        parsed.append({'lat':lat,'lon':lon,'mw':mw,'name':str(a.get(name) or '').strip(),'municipality':str(a.get(municipality) or '').strip(),'source_id':a.get(meta.get('objectIdField'))})
+        parsed.append({'lat':lat,'lon':lon,'mw':mw,'name':str(a.get(name) or '').strip(),'municipality':str(a.get(municipality) or '').strip(),'province':str(a.get(province) or '').strip(),'source_id':a.get(meta.get('objectIdField'))})
     return {'url':url,'capacity_field':cap,'realised_field':realised,'rows':parsed,'raw_count':len(rows)} if parsed else None
 
 
@@ -145,7 +161,7 @@ def aggregate(rows):
             if r['municipality'] and g['municipality'] and norm(r['municipality'])!=norm(g['municipality']):continue
             if haversine((r['lat'],r['lon']),(g['lat'],g['lon']))<=0.35:match=g;break
         if match is None:
-            groups.append({'lat':r['lat'],'lon':r['lon'],'capacity_mwp':r['mw'],'municipality':r['municipality'],'names':[r['name']] if r['name'] else [],'records':1})
+            groups.append({'lat':r['lat'],'lon':r['lon'],'capacity_mwp':r['mw'],'municipality':r['municipality'],'province':r['province'],'names':[r['name']] if r['name'] else [],'records':1})
         else:
             total=match['capacity_mwp']+r['mw']; match['lat']=(match['lat']*match['capacity_mwp']+r['lat']*r['mw'])/total; match['lon']=(match['lon']*match['capacity_mwp']+r['lon']*r['mw'])/total; match['capacity_mwp']=total; match['records']+=1
             if r['name'] and r['name'] not in match['names']:match['names'].append(r['name'])
@@ -153,7 +169,7 @@ def aggregate(rows):
     for g in groups:
         if g['capacity_mwp']<THRESHOLD:continue
         name=next((n for n in g['names'] if n),None) or (f"Zonnepark {g['municipality']}" if g['municipality'] else 'Zonnepark')
-        parks.append({'name':name,'lat':round(g['lat'],6),'lon':round(g['lon'],6),'capacity_mwp':round(g['capacity_mwp'],3),'status':'operationeel','municipality':g['municipality'],'subsidy_records':g['records'],'capacity_source':'ROM3D Zon op Kaart','match_quality':'arcgis_physical_location_aggregate'})
+        parks.append({'name':name,'lat':round(g['lat'],6),'lon':round(g['lon'],6),'capacity_mwp':round(g['capacity_mwp'],3),'status':'operationeel','municipality':g['municipality'],'province':g['province'],'subsidy_records':g['records'],'source':'ROM3D Zon op Kaart','match_quality':'arcgis_physical_location_aggregate'})
     return sorted(parks,key=lambda x:x['capacity_mwp'],reverse=True)
 
 
