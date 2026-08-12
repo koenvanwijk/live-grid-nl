@@ -6,7 +6,7 @@ registered project capacity/status. We only publish >=25 MWp parks when a
 high-confidence match can be made; area is never converted to MWp.
 """
 from __future__ import annotations
-import io,json,re,sys,unicodedata
+import io,json,re,unicodedata
 from pathlib import Path
 import requests
 import pandas as pd
@@ -29,12 +29,6 @@ def find_col(cols,*needles):
     return None
 
 def zenodo_download_url(file_meta):
-    """Resolve both current and legacy Zenodo record file metadata.
-
-    Current Zenodo file objects expose the downloadable object as links.self;
-    older responses may expose links.content. Prefer self, but retain content
-    compatibility so an API representation change cannot silently empty data.
-    """
     links=file_meta.get('links') or {}
     url=links.get('self') or links.get('content')
     if not url:
@@ -63,14 +57,35 @@ def download_sources():
     xlsx=get_bytes(url,120)
     return gpkg,xlsx,url,wur_url
 
+def header_score(values):
+    cells=[norm(v) for v in values if pd.notna(v)]
+    text=' | '.join(cells)
+    groups=(('techn','categorie'),('vermogen','capaciteit'),('gemeente',),('status','fase'),('project','installatie','locatie'))
+    return sum(any(token in text for token in group) for group in groups)
+
 def read_rvo(raw):
+    """Find the actual tabular header instead of assuming Excel row 1.
+
+    RVO workbooks currently start with a title row such as
+    'SDE(+)(+) Projecten in beheer, peildatum juli 2026'. We scan the first
+    40 rows of every sheet and then re-read the best sheet using the detected
+    header row.
+    """
     book=pd.ExcelFile(io.BytesIO(raw))
-    frames=[]
+    candidates=[]
     for sheet in book.sheet_names:
-        df=pd.read_excel(book,sheet_name=sheet)
-        if len(df.columns)>2: frames.append(df)
-    if not frames: raise RuntimeError('No usable RVO sheets')
-    return max(frames,key=lambda d: sum('zon' in norm(x) or 'solar' in norm(x) for x in d.astype(str).head(50).values.ravel()))
+        preview=pd.read_excel(book,sheet_name=sheet,header=None,nrows=40)
+        for idx,row in preview.iterrows():
+            score=header_score(row.tolist())
+            if score:
+                candidates.append((score,sheet,int(idx)))
+    if not candidates:
+        raise RuntimeError(f'Could not detect RVO header row in sheets: {book.sheet_names}')
+    score,sheet,header_row=max(candidates,key=lambda x:x[0])
+    df=pd.read_excel(book,sheet_name=sheet,header=header_row)
+    if len(df.columns)<3:
+        raise RuntimeError(f'RVO header detection yielded too few columns: sheet={sheet}, row={header_row}, columns={list(df.columns)}')
+    return df
 
 def main():
     gpkg,xlsx,rvo_url,wur_url=download_sources()
