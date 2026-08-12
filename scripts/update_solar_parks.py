@@ -26,13 +26,11 @@ def find_col(cols,*needles):
 def zenodo_download_url(file_meta):
     links=file_meta.get('links') or {}
     url=links.get('self') or links.get('content')
-    if not url:
-        raise RuntimeError(f"Zenodo file has no downloadable link: key={file_meta.get('key')!r}, links={sorted(links)}")
+    if not url: raise RuntimeError(f"Zenodo file has no downloadable link: key={file_meta.get('key')!r}, links={sorted(links)}")
     return url
 
 def get_bytes(url,timeout):
-    r=requests.get(url,timeout=timeout)
-    r.raise_for_status()
+    r=requests.get(url,timeout=timeout); r.raise_for_status()
     if not r.content: raise RuntimeError(f'Empty download: {url}')
     return r.content
 
@@ -47,45 +45,31 @@ def download_sources():
     url=requests.compat.urljoin(RVO_PAGE,a['href']); xlsx=get_bytes(url,120)
     return gpkg,xlsx,url,wur_url
 
-def header_traits(values):
-    cells=[norm(v) for v in values if pd.notna(v)]
-    text=' | '.join(cells)
-    has_geo=('gemeente' in text or 'plaats' in text)
-    has_kind=any(t in text for t in ('technologie','techniek','categorie','thema'))
-    has_cap=any(t in text for t in ('vermogen','capaciteit'))
-    has_proj=any(t in text for t in ('project','installatie','locatie'))
-    has_status=any(t in text for t in ('status','fase'))
-    score=sum((has_geo,has_kind,has_cap,has_proj,has_status))
-    return score,has_geo,has_kind,has_cap
-
 def read_rvo(raw):
-    """Detect the actual table header and ignore title/footnote rows."""
     book=pd.ExcelFile(io.BytesIO(raw)); candidates=[]; diagnostics=[]
     for sheet in book.sheet_names:
         preview=pd.read_excel(book,sheet_name=sheet,header=None,nrows=120)
         for idx,row in preview.iterrows():
-            score,geo,kind,cap=header_traits(row.tolist())
-            if score:
-                diagnostics.append((score,sheet,int(idx),[str(x) for x in row.tolist() if pd.notna(x)][:5]))
-            if geo and kind and cap:
-                candidates.append((score,sheet,int(idx)))
+            cells=[norm(v) for v in row.tolist() if pd.notna(v)]
+            text=' | '.join(cells)
+            stable=('sde ronde' in text and 'referentie' in text and 'categorie' in text)
+            score=sum(token in text for token in ('sde ronde','referentie','categorie','gemeente','vermogen','capaciteit','projectstatus','project naam'))
+            if score: diagnostics.append((score,sheet,int(idx),[str(x) for x in row.tolist() if pd.notna(x)][:8]))
+            if stable: candidates.append((score,sheet,int(idx)))
     if not candidates:
-        top=sorted(diagnostics,reverse=True)[:8]
-        raise RuntimeError(f'Could not detect RVO table header; top candidate rows={top}')
-    score,sheet,header_row=max(candidates,key=lambda x:x[0])
-    df=pd.read_excel(book,sheet_name=sheet,header=header_row)
-    df=df.dropna(how='all')
-    return df
+        raise RuntimeError(f'Could not detect RVO table header; top candidate rows={sorted(diagnostics,reverse=True)[:8]}')
+    _,sheet,header_row=max(candidates,key=lambda x:x[0])
+    return pd.read_excel(book,sheet_name=sheet,header=header_row).dropna(how='all')
 
 def main():
     gpkg,xlsx,rvo_url,wur_url=download_sources()
     tmp=Path('/tmp/solar-parks.gpkg'); tmp.write_bytes(gpkg)
     wur=gpd.read_file(tmp).to_crs(4326); rvo=read_rvo(xlsx); cols=list(rvo.columns)
     tech=find_col(cols,'techn') or find_col(cols,'categorie') or find_col(cols,'thema')
-    cap=find_col(cols,'vermogen') or find_col(cols,'capaciteit')
+    cap=find_col(cols,'vermogen') or find_col(cols,'capaciteit') or find_col(cols,'beschikt','productie')
     status=find_col(cols,'status') or find_col(cols,'fase')
     municipality=find_col(cols,'gemeente') or find_col(cols,'plaats')
-    name=find_col(cols,'project') or find_col(cols,'installatie') or find_col(cols,'locatie')
+    name=find_col(cols,'project','naam') or find_col(cols,'project') or find_col(cols,'installatie') or find_col(cols,'locatie')
     if not tech or not cap or not municipality:
         raise RuntimeError(f'RVO schema unsupported: tech={tech}, cap={cap}, municipality={municipality}; columns={cols}')
     rr=rvo[rvo[tech].astype(str).str.contains('zon|solar|pv',case=False,na=False)].copy()
