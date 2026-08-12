@@ -21,17 +21,28 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Install geodata dependencies
-        run: pip install --disable-pip-version-check requests pandas openpyxl beautifulsoup4 geopandas pyogrio
+      - name: Install dependencies
+        run: pip install --disable-pip-version-check requests
       - name: Build solar park dataset
         run: python scripts/update_solar_parks.py
       - name: Validate output
-        run: python -c "import json; d=json.load(open('data/solar-parks.json')); assert d['stats']['published_ge25mwp']>0; assert all(p['capacity_mwp']>=25 for p in d['parks']); assert all(p['match_quality'] for p in d['parks'])"
+        run: |
+          python - <<'PY'
+          import json
+          d=json.load(open('data/solar-parks.json'))
+          s=d['stats']
+          assert d['schema_version'] == 2
+          assert s['realised_records_with_capacity'] >= 100
+          assert s['published_ge25mwp'] > 0
+          assert s['published_capacity_mwp'] > 25
+          assert all(p['capacity_mwp'] >= 25 for p in d['parks'])
+          assert all(p['match_quality']=='arcgis_physical_location_aggregate' for p in d['parks'])
+          PY
       - name: Commit changed data
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add data/solar-parks.json
-          git diff --cached --quiet || git commit -m 'data: refresh WUR RVO solar parks'
+          git diff --cached --quiet || git commit -m 'data: refresh ROM3D solar parks'
           git pull --rebase origin main
           git push
