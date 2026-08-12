@@ -28,17 +28,40 @@ def find_col(cols,*needles):
         if all(x in n for x in needles): return c
     return None
 
+def zenodo_download_url(file_meta):
+    """Resolve both current and legacy Zenodo record file metadata.
+
+    Current Zenodo file objects expose the downloadable object as links.self;
+    older responses may expose links.content. Prefer self, but retain content
+    compatibility so an API representation change cannot silently empty data.
+    """
+    links=file_meta.get('links') or {}
+    url=links.get('self') or links.get('content')
+    if not url:
+        raise RuntimeError(f"Zenodo file has no downloadable link: key={file_meta.get('key')!r}, links={sorted(links)}")
+    return url
+
+def get_bytes(url,timeout):
+    r=requests.get(url,timeout=timeout)
+    r.raise_for_status()
+    if not r.content:
+        raise RuntimeError(f'Empty download: {url}')
+    return r.content
+
 def download_sources():
-    meta=requests.get(WUR_API,timeout=60).json()
-    f=next(x for x in meta['files'] if x['key'].lower().endswith('.gpkg'))
-    gpkg=requests.get(f['links']['content'],timeout=120).content
-    html=requests.get(RVO_PAGE,timeout=60).text
-    soup=BeautifulSoup(html,'html.parser')
+    mr=requests.get(WUR_API,timeout=60); mr.raise_for_status()
+    meta=mr.json()
+    f=next((x for x in meta.get('files',[]) if str(x.get('key','')).lower().endswith('.gpkg')),None)
+    if not f: raise RuntimeError(f"WUR Zenodo record has no .gpkg file; files={[x.get('key') for x in meta.get('files',[])]}")
+    wur_url=zenodo_download_url(f)
+    gpkg=get_bytes(wur_url,120)
+    hr=requests.get(RVO_PAGE,timeout=60); hr.raise_for_status()
+    soup=BeautifulSoup(hr.text,'html.parser')
     a=next((a for a in soup.find_all('a',href=True) if 'SDE-projecten in beheer' in a.get_text(' ',strip=True)),None)
     if not a: raise RuntimeError('RVO SDE-projecten download link not found')
     url=requests.compat.urljoin(RVO_PAGE,a['href'])
-    xlsx=requests.get(url,timeout=120).content
-    return gpkg,xlsx,url,f['links']['content']
+    xlsx=get_bytes(url,120)
+    return gpkg,xlsx,url,wur_url
 
 def read_rvo(raw):
     book=pd.ExcelFile(io.BytesIO(raw))
@@ -47,7 +70,6 @@ def read_rvo(raw):
         df=pd.read_excel(book,sheet_name=sheet)
         if len(df.columns)>2: frames.append(df)
     if not frames: raise RuntimeError('No usable RVO sheets')
-    # Prefer sheet containing solar technology and capacity columns.
     return max(frames,key=lambda d: sum('zon' in norm(x) or 'solar' in norm(x) for x in d.astype(str).head(50).values.ravel()))
 
 def main():
@@ -64,7 +86,6 @@ def main():
     if not tech or not cap or not municipality:
         raise RuntimeError(f'RVO schema unsupported: tech={tech}, cap={cap}, municipality={municipality}; columns={cols}')
     rr=rvo[rvo[tech].astype(str).str.contains('zon|solar|pv',case=False,na=False)].copy()
-    # Parse capacity conservatively. RVO exports may use kW or MW; infer from header.
     vals=pd.to_numeric(rr[cap].astype(str).str.replace('.','',regex=False).str.replace(',','.',regex=False),errors='coerce')
     rr['_mw']=vals/1000 if 'kw' in norm(cap) and 'mw' not in norm(cap) else vals
     if status:
