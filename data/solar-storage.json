@@ -1,14 +1,14 @@
 {
-  "solar": [
-    {"name":"Zonnepark Eekerpolder","lat":53.151,"lon":6.995,"capacity_mwp":192,"status":"operationeel","operator":"Novar / Coöperatie Eekerpolder","province":"Groningen","source":"Novar, GDS Avermieden – Eekerpolder","note":"Een van de grootste zonneparken van Nederland.","grid_connection":{"quality":"verified","network":"GDS Avermieden → TenneT","voltage_kv":33,"transmission_voltage_kv":220,"station":"TenneT Meeden","station_lat":53.139,"station_lon":6.929,"description":"Asset via 33 kV naar GDS-transformatorstation; vervolgens via eigen 220 kV-kabel naar TenneT hoogspanningsstation Meeden."}},
-    {"name":"Zonnepark Vloeivelden Hollandia","lat":52.964,"lon":6.944,"capacity_mwp":115,"status":"operationeel","operator":"Novar","province":"Drenthe","source":"Novar","note":"Groot zonnepark bij Nieuw-Buinen; gekoppeld aan H2 Hollandia.","grid_connection":{"quality":"unknown","description":"Exact publiek verifieerbaar aansluitstation nog niet opgenomen."}}
-  ],
   "storage": [
-    {"name":"Pollux","lat":51.447,"lon":3.724,"power_mw":30,"energy_mwh":68,"technology":"Li-ion BESS","status":"operationeel","operator":"SemperPower","province":"Zeeland","source":"Energy Storage NL","note":"Vlissingen-Oost, North Sea Port; in gebruik sinds december 2023.","grid_connection":{"quality":"verified","network":"Stedin","description":"Volgens Energy Storage NL rechtstreeks aangesloten op het netwerk van Stedin. Exact publiek station/spanningsniveau nog niet vastgesteld."}},
-    {"name":"Castor","lat":51.447,"lon":3.716,"power_mw":30,"energy_mwh":63,"technology":"Li-ion BESS","status":"operationeel","operator":"SemperPower","province":"Zeeland","source":"Energy Storage NL","note":"Vlissingen-Oost, North Sea Port; in gebruik sinds 2023.","grid_connection":{"quality":"partial","network":"Stedin / Vlissingen-Oost energy hub","description":"Locatie naast Pollux; exacte publieke aansluiting wordt nog afzonderlijk geverifieerd."}},
-    {"name":"Buffalo","lat":52.535,"lon":5.545,"power_mw":25,"energy_mwh":48,"technology":"LFP BESS","status":"operationeel","operator":"GIGA Storage","province":"Flevoland","source":"GIGA Storage","note":"WUR-testlocatie Lelystad; opgeleverd 2022.","grid_connection":{"quality":"verified","network":"Smart Grid Oost-Flevoland / Windnet","description":"Aangesloten op Windnet Smart Grid Oost-Flevoland en direct verbonden met windparken Mammoethtocht en Neushoorntocht."}}
+    {"name":"Pollux","lat":51.447,"lon":3.724,"power_mw":30,"energy_mwh":68,"technology":"Li-ion BESS","status":"operationeel","operator":"SemperPower","province":"Zeeland","source":"Energy Storage NL"},
+    {"name":"Castor","lat":51.447,"lon":3.716,"power_mw":30,"energy_mwh":63,"technology":"Li-ion BESS","status":"operationeel","operator":"SemperPower","province":"Zeeland","source":"Energy Storage NL"},
+    {"name":"Buffalo","lat":52.535,"lon":5.545,"power_mw":25,"energy_mwh":48,"technology":"LFP BESS","status":"operationeel","operator":"GIGA Storage","province":"Flevoland","source":"GIGA Storage"}
   ],
-  "thresholds":{"solar_mwp":25,"onshore_wind_mw":25,"storage_mw":25},
-  "onshore_wind_source":{"status":"external-geodata","provider":"RIVM","dataset":"Windturbines – vermogen","layer":"rivm_windturbines_vermogen_actueel","scope":"Nederland","selection":"onshore turbines; clusters >=25 MW","note":"De voormalige handmatige windparklijst is verwijderd om dubbeltelling en geschatte parkposities te voorkomen. Wind op land wordt uit de landelijke turbine-geodataset opgebouwd."},
-  "method":"Zon en opslag worden vanaf 25 MW opgenomen wanneer capaciteit en locatie publiek voldoende verifieerbaar zijn. Wind op land gebruikt niet langer een handmatig parkregister maar de landelijke RIVM-geodataset Windturbines – vermogen; turbines worden ruimtelijk tot clusters geaggregeerd en alleen clusters >=25 MW worden op landelijke zoom getoond. Icoongrootte voor batterijopslag wordt uitsluitend door MW laad/ontlaadvermogen bepaald; MWh wordt alleen als energie-inhoud getoond."
+  "thresholds":{"storage_mw":25},
+  "sources":{
+    "solar":"data/solar-parks.json · ROM3D Zon op Kaart",
+    "onshore_wind":"data/onshore-wind-rivm.json · RIVM Windturbines – vermogen",
+    "storage":"curated public project sources"
+  },
+  "method":"Dit bestand bevat alleen de handmatig geverifieerde batterijopslagset. Zonneparken en wind op land hebben ieder een eigen automatisch gegenereerde landelijke dataset. Batterij-icoongrootte wordt uitsluitend door MW laad/ontlaadvermogen bepaald; MWh wordt alleen als energie-inhoud getoond."
 }
