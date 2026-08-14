@@ -36,6 +36,7 @@ jobs:
         run: |
           python scripts/update_live.py
           python scripts/enrich_provenance.py
+          python scripts/overlay_ned_generation_mix.py
           python scripts/write_status.py
 
       - name: Show snapshot status
@@ -45,6 +46,13 @@ jobs:
           echo '```json' >> "$GITHUB_STEP_SUMMARY"
           cat data/status.json >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo '## Generation mix freshness' >> "$GITHUB_STEP_SUMMARY"
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          d=json.load(open('data/live.json'))
+          for row in d.get('generation_mix',[]):
+              print(f"- {row.get('name')}: {row.get('mw')} MW · {row.get('source')} · {row.get('provenance')} · {row.get('measured_at')}")
+          PY
 
       - name: Validate snapshot
         run: |
