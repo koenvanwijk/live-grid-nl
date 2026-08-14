@@ -36,7 +36,7 @@ jobs:
         run: |
           python scripts/update_live.py
           python scripts/enrich_provenance.py
-          python scripts/overlay_ned_generation_mix.py
+          python scripts/overlay_ned_generation_mix_v2.py
           python scripts/write_status.py
 
       - name: Show snapshot status
