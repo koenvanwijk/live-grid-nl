@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Replace the national generation mix with fresh NED near-real-time values.
+"""Overlay fresh NED generation data onto the live snapshot.
 
-ENTSO-E remains the fallback in update_live.py, but when NED current data is
-available this script makes it the primary source for the generation table.
-Each row carries its own timestamp so stale values cannot masquerade as live.
+The detailed per-source NED queries are opportunistic. The fresh NED national
+generation total is independent and remains authoritative for the headline even
+when NED does not expose a compatible detailed mix for this query shape.
 """
 from __future__ import annotations
 
@@ -19,10 +19,6 @@ PATH = Path('data/live.json')
 TOKEN = os.getenv('NED_TOKEN', '').strip()
 MAX_AGE_MINUTES = 90
 
-# NED type -> ENTSO-E PSR-compatible code + UI label.
-# Wind/solar values are explicitly model-based in NED; for the other NED
-# near-real-time values we conservatively label provenance as derived rather
-# than claiming a direct plant meter measurement.
 NED_TYPES = [
     (19, 'B05', 'Steenkool', 'derived'),
     (18, 'B04', 'Gas', 'derived'),
@@ -64,7 +60,7 @@ def request_latest(type_id):
         'type': type_id,
         'granularity': 4,
         'granularitytimezone': 0,
-        'classification': 2,  # Current / near-real-time, never forecast.
+        'classification': 2,
         'activity': 1,
         'itemsPerPage': 1,
         'order[validfrom]': 'desc',
@@ -107,24 +103,85 @@ def to_mix_row(ned_row, code, name, provenance):
         'derivation': (
             'NED current/near-real-time model value; geen directe lokale meterwaarde.'
             if provenance == 'modelled'
-            else 'NED current/near-real-time nationale waarde; conservatief als afgeleid gemarkeerd, niet als directe centrale-metering.'
+            else 'NED current/near-real-time nationale waarde; conservatief als afgeleid gemarkeerd.'
         ),
     }
 
 
+def fresh_ned_total(warnings):
+    try:
+        row = request_latest(27)
+        if row and row.get('capacity') is not None and fresh(row):
+            return round(float(row['capacity']) / 1000.0, 1), row.get('validfrom')
+        warnings.append('NED generation total: no fresh current value')
+    except Exception as exc:
+        warnings.append(f'NED generation total: {exc}')
+    return None, None
+
+
+def set_ned_headline(data, total, total_ts):
+    if total is None:
+        return
+    data['generation_mw'] = total
+    if total_ts:
+        data['measured_at'] = total_ts
+    if 'NED' not in data.setdefault('sources', []):
+        data['sources'].append('NED')
+    data.setdefault('provenance', {})['generation_mw'] = {
+        'provenance': 'derived', 'temporal': 'actual', 'source': 'NED', 'measured_at': total_ts,
+    }
+    data.setdefault('observations', {}).setdefault('system', {})['generation'] = {
+        'value': total, 'unit': 'MW', 'provenance': 'derived', 'temporal': 'actual',
+        'source': 'NED', 'measured_at': total_ts, 'interval_start': total_ts,
+        'derivation': 'NED current/near-real-time nationale elektriciteitsproductie.',
+    }
+
+
+def add_reconciliation_row(data, total):
+    if total is None:
+        return
+    mix = [r for r in (data.get('generation_mix') or []) if r.get('code') != 'UNSPLIT']
+    known = sum(float(r.get('mw') or 0) for r in mix)
+    gap = round(total - known, 1)
+    data['generation_mix_accounted_mw'] = round(known, 1)
+    data['generation_mix_gap_mw'] = gap
+    if gap > 50:
+        mix.append({
+            'code': 'UNSPLIT',
+            'name': 'Niet uitgesplitst',
+            'mw': gap,
+            'source': 'NED totaal − ENTSO-E mix',
+            'provenance': 'derived',
+            'temporal': 'actual',
+            'measured_at': data.get('measured_at'),
+            'derivation': 'Verschil tussen het actuele NED-productietotaal en de beschikbare ENTSO-E bronuitsplitsing.',
+        })
+        mix.sort(key=lambda r: float(r.get('mw') or 0), reverse=True)
+        data['generation_mix'] = mix
+
+
+def add_balance_check(data):
+    load = data.get('load_mw'); generation = data.get('generation_mw'); net = data.get('net_import_mw')
+    if all(v is not None for v in (load, generation, net)):
+        residual = round(float(load) - float(generation) - float(net), 1)
+        data['balance_residual_mw'] = residual
+        data['balance_equation'] = 'vraag = opwek + netto import + restverschil'
+
+
 def main():
     if not TOKEN:
-        print('NED_TOKEN missing: keeping ENTSO-E generation mix fallback')
+        print('NED_TOKEN missing: keeping ENTSO-E fallback')
         return
 
     data = json.loads(PATH.read_text())
-    rows = []
     warnings = data.setdefault('warnings', [])
+    total, total_ts = fresh_ned_total(warnings)
+    set_ned_headline(data, total, total_ts)
 
+    rows = []
     for type_id, code, name, provenance in NED_TYPES:
         try:
-            source = request_latest(type_id)
-            row = to_mix_row(source, code, name, provenance)
+            row = to_mix_row(request_latest(type_id), code, name, provenance)
             if row:
                 rows.append(row)
             else:
@@ -132,8 +189,6 @@ def main():
         except Exception as exc:
             warnings.append(f'NED generation mix {name}: {exc}')
 
-    # NED's preferred offshore series is type 51. Fall back to its older
-    # current offshore series (17) only when type 51 is unavailable.
     if not any(r['code'] == 'B18' for r in rows):
         try:
             fallback = to_mix_row(request_latest(17), 'B18', 'Wind op zee', 'modelled')
@@ -142,80 +197,24 @@ def main():
         except Exception as exc:
             warnings.append(f'NED generation mix Wind op zee fallback: {exc}')
 
-    # Do not replace a complete ENTSO-E table with a clearly broken NED pull.
     core = {'B04', 'B05', 'B14', 'B16', 'B18', 'B19'}
-    if len(rows) < 6 or len(core & {r['code'] for r in rows}) < 5:
-        warnings.append(f'NED generation mix incomplete ({len(rows)} fresh rows); keeping ENTSO-E fallback')
-        PATH.write_text(json.dumps(data, indent=2, ensure_ascii=False) + '\n')
-        return
-
-    rows.sort(key=lambda r: r['mw'], reverse=True)
-    data['generation_mix'] = rows
-    data['generation_by_type'] = {r['code']: r['mw'] for r in rows}
-
-    # Prefer NED total generation when it is fresh; otherwise sum the fresh rows.
-    total = None
-    total_ts = None
-    try:
-        t = request_latest(27)
-        if t and t.get('capacity') is not None and fresh(t):
-            total = round(float(t['capacity']) / 1000.0, 1)
-            total_ts = t.get('validfrom')
-    except Exception as exc:
-        warnings.append(f'NED generation total: {exc}')
-    if total is None:
-        total = round(sum(r['mw'] for r in rows), 1)
-        total_ts = max((r.get('measured_at') for r in rows if r.get('measured_at')), default=data.get('measured_at'))
-
-    data['generation_mw'] = total
-    if total_ts:
-        data['measured_at'] = total_ts
-    if 'NED' not in data.setdefault('sources', []):
-        data['sources'].append('NED')
-
-    observations = data.setdefault('observations', {})
-    observations['generation_mix'] = {
-        r['code']: {
-            'value': r['mw'],
-            'unit': 'MW',
-            'provenance': r['provenance'],
-            'temporal': 'actual',
-            'source': 'NED',
-            'measured_at': r['measured_at'],
-            'interval_start': r.get('interval_start'),
-            'interval_end': r.get('interval_end'),
-            'published_at': r.get('published_at'),
-            'derivation': r.get('derivation'),
+    complete = len(rows) >= 6 and len(core & {r['code'] for r in rows}) >= 5
+    if complete:
+        rows.sort(key=lambda r: r['mw'], reverse=True)
+        data['generation_mix'] = rows
+        data['generation_by_type'] = {r['code']: r['mw'] for r in rows}
+        data.setdefault('provenance', {})['generation_mix'] = {
+            'provenance': 'derived', 'temporal': 'actual', 'source': 'NED', 'measured_at': total_ts,
+            'note': 'Per bron kan provenance derived of modelled zijn.',
         }
-        for r in rows
-    }
-    observations.setdefault('system', {})['generation'] = {
-        'value': total,
-        'unit': 'MW',
-        'provenance': 'derived',
-        'temporal': 'actual',
-        'source': 'NED',
-        'measured_at': total_ts,
-        'interval_start': total_ts,
-        'derivation': 'NED ElectricityMix current/near-real-time nationale elektriciteitsproductie.',
-    }
-    data.setdefault('provenance', {})['generation_mix'] = {
-        'provenance': 'derived',
-        'temporal': 'actual',
-        'source': 'NED',
-        'measured_at': total_ts,
-        'note': 'Per bron kan provenance derived of modelled zijn; zie generation_mix rows / observations.',
-    }
-    data['provenance']['generation_mw'] = {
-        'provenance': 'derived',
-        'temporal': 'actual',
-        'source': 'NED',
-        'measured_at': total_ts,
-    }
+    else:
+        warnings.append(f'NED generation mix incomplete ({len(rows)} fresh rows); keeping ENTSO-E detail, NED total remains headline')
 
+    add_reconciliation_row(data, total)
+    add_balance_check(data)
     PATH.write_text(json.dumps(data, indent=2, ensure_ascii=False) + '\n')
-    print('NED generation mix:', ', '.join(f"{r['name']}={r['mw']} MW" for r in rows))
     print('NED generation total:', total, 'MW @', total_ts)
+    print('balance residual:', data.get('balance_residual_mw'), 'MW')
 
 
 if __name__ == '__main__':
