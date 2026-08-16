@@ -59,7 +59,7 @@ def main():
     assert len(demand.get('assumptions') or []) >= 5
 
     province_flow = (ROOT / 'data/province-flow.js').read_text(encoding='utf-8')
-    for fragment in ('generation_by_province','wind_onshore_mw','solar_mw','province-demand-model.json','demandByProvince','load_mw','renewable balance'):
+    for fragment in ('generation_by_province','wind_onshore_mw','solar_mw','province-demand-model.json','demandByProvince','load_mw','Provinciale hernieuwbare balans'):
         assert fragment in province_flow, fragment
     assert 'gemeten fysieke' in province_flow.lower()
     assert 'sum' in province_flow.lower()
