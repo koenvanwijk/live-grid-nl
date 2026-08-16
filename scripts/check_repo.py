@@ -10,20 +10,13 @@ def load(path):
 def main():
     solar = load('data/solar-parks.json')
     parks = solar.get('parks') or []
-    schema = solar.get('schema_version')
-    assert schema in (2, 3)
-    if schema == 3:
-        assert solar.get('overview_threshold_mwp') == 25.0
-        assert len(parks) == solar.get('stats', {}).get('physical_parks')
-        assert len(parks) >= 100
-        assert any(0 < float(p.get('capacity_mwp', 0)) < 25 for p in parks)
-        overview = [p for p in parks if float(p.get('capacity_mwp', 0)) >= 25]
-        assert len(overview) == solar.get('stats', {}).get('overview_ge25mwp')
-    else:
-        # Transitional compatibility until the schema-3 ingest has refreshed the checked-in snapshot.
-        assert solar.get('threshold_mwp') == 25.0
-        assert len(parks) == solar.get('stats', {}).get('published_ge25mwp')
-        assert all(float(p.get('capacity_mwp', 0)) >= 25 for p in parks)
+    assert solar.get('schema_version') == 3
+    assert solar.get('overview_threshold_mwp') == 25.0
+    assert len(parks) == solar.get('stats', {}).get('physical_parks')
+    assert len(parks) >= 100
+    assert any(0 < float(p.get('capacity_mwp', 0)) < 25 for p in parks)
+    overview = [p for p in parks if float(p.get('capacity_mwp', 0)) >= 25]
+    assert len(overview) == solar.get('stats', {}).get('overview_ge25mwp')
     assert all(p.get('status') == 'operationeel' for p in parks)
     assert all(float(p.get('capacity_mwp', 0)) > 0 for p in parks)
     assert all(p.get('source') == 'ROM3D Zon op Kaart' for p in parks)
