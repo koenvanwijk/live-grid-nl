@@ -31,18 +31,23 @@ jobs:
           import json
           d=json.load(open('data/solar-parks.json'))
           s=d['stats']
-          assert d['schema_version'] == 2
+          parks=d['parks']
+          overview=[p for p in parks if p['capacity_mwp'] >= d['overview_threshold_mwp']]
+          assert d['schema_version'] == 3
+          assert d['overview_threshold_mwp'] == 25.0
           assert s['realised_records_with_capacity'] >= 100
-          assert s['published_ge25mwp'] > 0
-          assert s['published_capacity_mwp'] > 25
-          assert all(p['capacity_mwp'] >= 25 for p in d['parks'])
-          assert all(p['match_quality']=='arcgis_physical_location_aggregate' for p in d['parks'])
+          assert s['physical_parks'] == len(parks) >= 100
+          assert s['overview_ge25mwp'] == len(overview) > 0
+          assert s['overview_capacity_mwp'] > 25
+          assert any(0 < p['capacity_mwp'] < 25 for p in parks), 'LOD dataset must include smaller realised parks'
+          assert all(p['capacity_mwp'] > 0 for p in parks)
+          assert all(p['match_quality']=='arcgis_physical_location_aggregate' for p in parks)
           PY
       - name: Commit changed data
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add data/solar-parks.json
-          git diff --cached --quiet || git commit -m 'data: refresh ROM3D solar parks'
+          git diff --cached --quiet || git commit -m 'data: refresh full ROM3D solar park set'
           git pull --rebase origin main
           git push
