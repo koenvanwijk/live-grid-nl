@@ -56,18 +56,22 @@ def main():
         assert len(profile.get('weekend') or []) == 24
         assert all(float(x) > 0 for x in profile['weekday'] + profile['weekend'])
     assert all(p.get('profile') in profiles for p in provinces.values())
-    assert len(demand.get('assumptions') or []) >= 5
+    assumptions = demand.get('assumptions') or []
+    assert len(assumptions) >= 5
+    assert any('Interprovincial renewable flows' in a for a in assumptions)
 
     province_flow = (ROOT / 'data/province-flow.js').read_text(encoding='utf-8')
-    for fragment in ('generation_by_province','wind_onshore_mw','solar_mw','province-demand-model.json','demandByProvince','load_mw','Provinciale hernieuwbare balans'):
+    for fragment in ('generation_by_province','wind_onshore_mw','solar_mw','province-demand-model.json','demandByProvince','load_mw','EDGES','routeRedistribution','Gemodelleerde provinciale hernieuwbare flow','movingDot'):
         assert fragment in province_flow, fragment
     assert 'gemeten fysieke' in province_flow.lower()
-    assert 'sum' in province_flow.lower()
-    assert 'avg=' not in province_flow and 'EDGES=' not in province_flow
+    assert 'totalRenewable*(dm/totalLoad)' in province_flow
+    assert 'animationGeneration' in province_flow
 
     index = (ROOT / 'index.html').read_text(encoding='utf-8')
     assert 'Aannames provinciaal gebruik' in index
-    assert 'provinciaal gebruik is een model' in index
+    assert 'Provinciale gele stromen' in index
+    assert 'vereenvoudigd netwerk van buurprovincies' in index
+    assert 'data/province-flow.js?v=4' in index
 
     for path in ['data/capacity-scale.js','data/injections.js','data/solar-storage.js','data/interconnector-flags.js','data/capacity-overrides.js']:
         text = (ROOT / path).read_text(encoding='utf-8')
