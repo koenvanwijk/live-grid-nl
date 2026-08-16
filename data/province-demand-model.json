@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "method": "National live electricity demand is distributed over provinces using CBS population shares and transparent province profile classes. Hour/day factors only change relative provincial shares; all provinces are renormalised every refresh so their sum exactly equals the national live demand.",
+  "population_source": {
+    "provider": "CBS",
+    "table": "71488NED",
+    "title": "Huishoudens; personen naar geslacht, leeftijd en regio, 1 januari",
+    "population_total": 18044027,
+    "note": "Population is used as the baseline spatial weight, not as a measured electricity-consumption share."
+  },
+  "assumptions": [
+    "No public live electricity-demand series per province is used.",
+    "Population share is the baseline allocation of national live demand.",
+    "Province profile classes are modelling assumptions intended to represent a flatter industrial profile versus a stronger residential/urban morning-evening profile.",
+    "Every timestep is normalised back to the measured national live demand, so modelled provincial MW always sums exactly to the national MW value.",
+    "Provincial solar and onshore-wind generation are measured NED values; other provincial generation is not included in the provincial renewable balance.",
+    "Map routes to TenneT stations are visual aids, not measured physical power flows."
+  ],
+  "profiles": {
+    "urban": {
+      "weekday": [0.72,0.69,0.67,0.67,0.70,0.78,0.91,1.03,1.08,1.08,1.07,1.06,1.05,1.05,1.06,1.09,1.15,1.22,1.25,1.22,1.14,1.02,0.90,0.80],
+      "weekend": [0.76,0.73,0.71,0.70,0.71,0.75,0.81,0.90,0.98,1.04,1.08,1.10,1.10,1.09,1.09,1.10,1.14,1.19,1.22,1.20,1.13,1.03,0.92,0.83]
+    },
+    "mixed": {
+      "weekday": [0.74,0.71,0.69,0.69,0.72,0.80,0.93,1.04,1.08,1.07,1.05,1.04,1.03,1.03,1.05,1.08,1.14,1.20,1.22,1.18,1.11,1.00,0.89,0.80],
+      "weekend": [0.78,0.75,0.73,0.72,0.73,0.77,0.83,0.91,0.99,1.04,1.08,1.10,1.10,1.09,1.08,1.09,1.13,1.18,1.20,1.18,1.11,1.02,0.92,0.84]
+    },
+    "industrial": {
+      "weekday": [0.83,0.81,0.80,0.80,0.82,0.88,0.98,1.06,1.09,1.09,1.08,1.07,1.06,1.06,1.07,1.08,1.10,1.12,1.12,1.09,1.04,0.97,0.91,0.86],
+      "weekend": [0.86,0.84,0.83,0.82,0.83,0.86,0.91,0.96,1.00,1.03,1.05,1.06,1.06,1.05,1.05,1.05,1.06,1.08,1.09,1.07,1.03,0.97,0.92,0.88]
+    }
+  },
+  "provinces": {
+    "Groningen": {"population":602833,"profile":"industrial"},
+    "Friesland": {"population":664222,"profile":"mixed"},
+    "Drenthe": {"population":506529,"profile":"mixed"},
+    "Overijssel": {"population":1195789,"profile":"mixed"},
+    "Flevoland": {"population":456395,"profile":"mixed"},
+    "Gelderland": {"population":2161358,"profile":"mixed"},
+    "Utrecht": {"population":1409144,"profile":"urban"},
+    "Noord-Holland": {"population":2992016,"profile":"urban"},
+    "Zuid-Holland": {"population":3863397,"profile":"industrial"},
+    "Zeeland": {"population":392969,"profile":"industrial"},
+    "Noord-Brabant": {"population":2664047,"profile":"industrial"},
+    "Limburg": {"population":1135328,"profile":"mixed"}
+  }
+}
