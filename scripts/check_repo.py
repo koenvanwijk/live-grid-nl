@@ -4,21 +4,33 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
-
 def load(path):
     return json.loads((ROOT / path).read_text(encoding='utf-8'))
-
 
 def main():
     solar = load('data/solar-parks.json')
     parks = solar.get('parks') or []
-    assert solar.get('schema_version') == 2
-    assert solar.get('threshold_mwp') == 25.0
-    assert len(parks) == solar.get('stats', {}).get('published_ge25mwp')
-    assert len(parks) >= 20
+    schema = solar.get('schema_version')
+    assert schema in (2, 3)
+    if schema == 3:
+        assert solar.get('overview_threshold_mwp') == 25.0
+        assert len(parks) == solar.get('stats', {}).get('physical_parks')
+        assert len(parks) >= 100
+        assert any(0 < float(p.get('capacity_mwp', 0)) < 25 for p in parks)
+        overview = [p for p in parks if float(p.get('capacity_mwp', 0)) >= 25]
+        assert len(overview) == solar.get('stats', {}).get('overview_ge25mwp')
+    else:
+        # Transitional compatibility until the schema-3 ingest has refreshed the checked-in snapshot.
+        assert solar.get('threshold_mwp') == 25.0
+        assert len(parks) == solar.get('stats', {}).get('published_ge25mwp')
+        assert all(float(p.get('capacity_mwp', 0)) >= 25 for p in parks)
     assert all(p.get('status') == 'operationeel' for p in parks)
-    assert all(float(p.get('capacity_mwp', 0)) >= 25 for p in parks)
+    assert all(float(p.get('capacity_mwp', 0)) > 0 for p in parks)
     assert all(p.get('source') == 'ROM3D Zon op Kaart' for p in parks)
+
+    solar_js = (ROOT / 'data/solar-storage.js').read_text(encoding='utf-8')
+    for fragment in ('solarThreshold','z<8?25','z<9.5?10','z<11?5','z<12.5?2','MAX_VISIBLE_SOLAR'):
+        assert fragment in solar_js, fragment
 
     wind = load('data/onshore-wind-rivm.json')
     clusters = wind.get('clusters') or []
@@ -36,12 +48,18 @@ def main():
     assert storage.get('thresholds') == {'storage_mw': 25}
     assert all(float(p.get('power_mw', 0)) >= 25 for p in storage.get('storage', []))
 
+    province_flow = (ROOT / 'data/province-flow.js').read_text(encoding='utf-8')
+    assert 'generation_by_province' in province_flow
+    assert 'wind_onshore_mw' in province_flow and 'solar_mw' in province_flow
+    assert 'dichtstbijzijnde geschikte TenneT-locatie' in province_flow
+    assert 'geen gemeten fysieke' in province_flow.lower()
+    assert 'avg=' not in province_flow and 'EDGES=' not in province_flow
+
     for path in ['data/capacity-scale.js','data/injections.js','data/solar-storage.js','data/interconnector-flags.js','data/capacity-overrides.js']:
         text = (ROOT / path).read_text(encoding='utf-8')
         assert 'capacityDiameter' in text, path
 
     print('repository consistency: OK')
-
 
 if __name__ == '__main__':
     main()
