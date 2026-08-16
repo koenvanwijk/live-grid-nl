@@ -1,18 +1,13 @@
 (()=>{
-const T='https://services-eu1.arcgis.com/WjozPuR5ROn6NZE8/ArcGIS/rest/services/TenneT_Assets_Hoogspanning/FeatureServer/5/query?where=1%3D1&outFields=*&outSR=4326&returnGeometry=true&f=geojson';
 const CENTERS={'Groningen':[53.22,6.57],'Friesland':[53.16,5.78],'Drenthe':[52.95,6.62],'Overijssel':[52.43,6.45],'Flevoland':[52.52,5.48],'Gelderland':[52.05,5.87],'Utrecht':[52.09,5.12],'Noord-Holland':[52.60,4.90],'Zuid-Holland':[52.00,4.48],'Zeeland':[51.49,3.85],'Noord-Brabant':[51.57,5.08],'Limburg':[51.20,5.95]};
-const layers=[];let stations=[],lastData=null,demandModel=null;
-const style=document.createElement('style');style.textContent='.leaflet-overlay-pane path.province-balance{stroke-dasharray:6 10!important;stroke-linecap:round!important;animation:province-balance-flow 1.3s linear infinite;filter:drop-shadow(0 0 2px rgba(255,255,255,.18))}@keyframes province-balance-flow{to{stroke-dashoffset:-16}}';document.head.appendChild(style);
-function clear(){while(layers.length){const x=layers.pop();if(map.hasLayer(x))map.removeLayer(x)}}
-function point(f){const g=f?.geometry;if(!g)return null;if(g.type==='Point')return[g.coordinates[1],g.coordinates[0]];if(g.type==='Polygon'){const r=g.coordinates?.[0]||[];if(!r.length)return null;return[r.reduce((s,p)=>s+p[1],0)/r.length,r.reduce((s,p)=>s+p[0],0)/r.length]}return null}
-function stationName(f){const p=f?.properties||{};return p.STATIONID||p.OBJECTOMSCHRIJVING||'TenneT station'}
-function kv(f){return (f?.properties||{}).SPANNINGSNIVEAU||''}
-function dist(a,b){const x=(a[1]-b[1])*Math.cos((a[0]+b[0])*Math.PI/360),y=a[0]-b[0];return Math.hypot(x,y)}
-function nearest(pt){return stations.map(f=>({f,p:point(f)})).filter(x=>x.p).sort((a,b)=>dist(pt,a.p)-dist(pt,b.p))[0]||null}
+const EDGES=[['Groningen','Friesland'],['Groningen','Drenthe'],['Friesland','Flevoland'],['Drenthe','Overijssel'],['Overijssel','Flevoland'],['Overijssel','Gelderland'],['Flevoland','Noord-Holland'],['Flevoland','Gelderland'],['Noord-Holland','Utrecht'],['Noord-Holland','Zuid-Holland'],['Utrecht','Gelderland'],['Utrecht','Zuid-Holland'],['Gelderland','Noord-Brabant'],['Gelderland','Limburg'],['Zuid-Holland','Noord-Brabant'],['Zuid-Holland','Zeeland'],['Zeeland','Noord-Brabant'],['Noord-Brabant','Limburg']];
+const layers=[];let lastData=null,demandModel=null,rafIds=[];
+const style=document.createElement('style');style.textContent='.leaflet-overlay-pane path.province-flow-line{stroke-linecap:round!important;filter:drop-shadow(0 0 2px rgba(255,214,90,.28))}.province-flow-node{background:#ffd65a;border:1px solid rgba(7,17,28,.72);border-radius:50%;box-shadow:0 0 7px rgba(255,214,90,.45)}';document.head.appendChild(style);
+function clear(){for(const id of rafIds)cancelAnimationFrame(id);rafIds=[];while(layers.length){const x=layers.pop();if(map.hasLayer(x))map.removeLayer(x)}}
 function renewable(p){return Number(p?.wind_onshore_mw||0)+Number(p?.solar_mw||0)}
 function enabled(){return document.querySelector('#provinceFlowToggle')?.checked!==false}
 function visible(){return enabled()&&map.getZoom()<11.1}
-function weight(mw){return Math.max(1.5,Math.min(8,1.1+Math.sqrt(Math.max(0,mw))/6.5))}
+function weight(mw){return Math.max(1.5,Math.min(8,1.2+Math.sqrt(Math.max(0,mw))/5.7))}
 function demandByProvince(totalMW,when=new Date()){
  if(!demandModel||!(totalMW>0))return{};
  const hour=when.getHours(),weekend=when.getDay()===0||when.getDay()===6,period=weekend?'weekend':'weekday',raw={};let sum=0;
@@ -24,27 +19,27 @@ function demandByProvince(totalMW,when=new Date()){
  if(!(sum>0))return{};
  return Object.fromEntries(Object.entries(raw).map(([n,v])=>[n,totalMW*v/sum]));
 }
-function popup(name,bucket,demandMW,target){
- const wind=Number(bucket?.wind_onshore_mw||0),solar=Number(bucket?.solar_mw||0),gen=wind+solar,net=gen-demandMW,coverage=demandMW>0?100*gen/demandMW:0,ts=bucket?.measured_at,dir=net>=0?'overschot hernieuwbaar':'tekort t.o.v. vraagmodel';
- return `<b>Provinciale hernieuwbare balans</b><small>${name}</small><small>⚡ geschatte vraag ${Math.round(demandMW).toLocaleString('nl-NL')} MW · ☀+🌬 ${Math.round(gen).toLocaleString('nl-NL')} MW</small><small>☀ ${Math.round(solar).toLocaleString('nl-NL')} MW · 🌬 ${Math.round(wind).toLocaleString('nl-NL')} MW · dekking ${Math.round(coverage)}%</small><small><b>${dir}:</b> ${Math.round(Math.abs(net)).toLocaleString('nl-NL')} MW</small><small>Visualisatie via ${stationName(target.f)} · ${kv(target.f)}</small><small class="provenance-line provenance-derived">vraag: gemodelleerd uit live NL-vraag + CBS bevolkingsgewicht + uur/dagprofiel</small><small class="provenance-line provenance-measured">zon/wind: actuele provinciale NED-productie</small><small class="temporal-line temporal-actual">actueel${ts?` · ${new Date(ts).toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit'})}`:''}</small><small>Andere provinciale opwek (gas, kern, biomassa enz.) zit niet in deze balans. De route is géén gemeten fysieke lijn- of provinciegrensstroom.</small>`;
-}
-function draw(){
- clear();if(!lastData||!stations.length||!demandModel||!visible())return;
- const total=Number(lastData.load_mw||lastData.ned_load_mw||0);if(!(total>0))return;
- const demand=demandByProvince(total,new Date(lastData.measured_at||Date.now())),p=lastData.generation_by_province||{};
- for(const [name,center] of Object.entries(CENTERS)){
-  const bucket=p[name],gen=renewable(bucket),dm=Number(demand[name]||0);if(!(dm>0)||!bucket)continue;
-  const target=nearest(center);if(!target)continue;
-  const net=gen-dm,surplus=net>=0,a=surplus?center:target.p,b=surplus?target.p:center,color=surplus?'#70e58b':'#ffb454';
-  const line=L.polyline([a,b],{color,weight:weight(Math.abs(net)),opacity:.68,className:'province-balance',interactive:true}).bindPopup(popup(name,bucket,dm,target),{className:'grid-popup'}).addTo(map);layers.push(line);
+function adjacency(){const a={};for(const n of Object.keys(CENTERS))a[n]=[];for(const [x,y] of EDGES){a[x].push(y);a[y].push(x)}return a}
+function shortestPath(from,to,adj){const q=[[from]],seen=new Set([from]);while(q.length){const path=q.shift(),n=path[path.length-1];if(n===to)return path;for(const m of adj[n]||[]){if(!seen.has(m)){seen.add(m);q.push([...path,m])}}}return null}
+function edgeKey(a,b){return a<b?`${a}|${b}`:`${b}|${a}`}
+function routeRedistribution(balance){
+ const adj=adjacency(),surplus=Object.entries(balance).filter(([,v])=>v>0.5).map(([n,v])=>({n,mw:v})).sort((a,b)=>b.mw-a.mw),deficit=Object.entries(balance).filter(([,v])=>v<-.5).map(([n,v])=>({n,mw:-v})).sort((a,b)=>b.mw-a.mw),edgeFlow={};
+ for(const s of surplus){while(s.mw>.5){const choices=deficit.filter(d=>d.mw>.5).map(d=>({d,path:shortestPath(s.n,d.n,adj)})).filter(x=>x.path).sort((a,b)=>a.path.length-b.path.length||b.d.mw-a.d.mw);if(!choices.length)break;const {d,path}=choices[0],mw=Math.min(s.mw,d.mw);s.mw-=mw;d.mw-=mw;for(let i=0;i<path.length-1;i++){const a=path[i],b=path[i+1],key=edgeKey(a,b),sign=a<b?1:-1;edgeFlow[key]=(edgeFlow[key]||0)+sign*mw}}
  }
+ return Object.entries(edgeFlow).map(([key,signed])=>{const [a,b]=key.split('|');return signed>=0?{from:a,to:b,mw:signed}:{from:b,to:a,mw:-signed}}).filter(x=>x.mw>=5);
 }
-async function refresh(){try{const r=await fetch(`data/live.json?t=${Date.now()}`,{cache:'no-store'});if(!r.ok)return;lastData=await r.json();draw()}catch(e){console.warn('province demand balance',e)}}
-async function boot(){try{
- const [sr,mr]=await Promise.all([fetch(T),fetch(`data/province-demand-model.json?t=${Date.now()}`,{cache:'no-store'})]);if(!sr.ok)throw new Error(`TenneT stations HTTP ${sr.status}`);if(!mr.ok)throw new Error(`province demand model HTTP ${mr.status}`);
- stations=(await sr.json()).features.filter(f=>['110 kV','150 kV','220 kV','380 kV'].includes(kv(f))&&point(f));demandModel=await mr.json();
- const filters=document.querySelector('.filters');if(filters&&!document.querySelector('#provinceFlowToggle')){const l=document.createElement('label');l.innerHTML='<input id="provinceFlowToggle" type="checkbox" checked><i class="swatch" style="background:linear-gradient(90deg,#70e58b 50%,#ffb454 50%)"></i>provinciale hernieuwbare balans';filters.prepend(l);l.querySelector('input').addEventListener('change',draw)}
- await refresh();map.on('zoomend',draw);setInterval(refresh,60000);
- }catch(e){console.warn('province demand balance',e)}}
+function nodePopup(name,bucket,demandMW,expectedRenewable){const wind=Number(bucket?.wind_onshore_mw||0),solar=Number(bucket?.solar_mw||0),gen=wind+solar,share=gen-expectedRenewable,coverage=demandMW>0?100*gen/demandMW:0;return `<b>${name}</b><small>geschat gebruik ${Math.round(demandMW).toLocaleString('nl-NL')} MW · zon+wind ${Math.round(gen).toLocaleString('nl-NL')} MW</small><small>☀ ${Math.round(solar).toLocaleString('nl-NL')} MW · 🌬 ${Math.round(wind).toLocaleString('nl-NL')} MW · dekking ${Math.round(coverage)}%</small><small><b>hernieuwbare afwijking:</b> ${share>=0?'+':''}${Math.round(share).toLocaleString('nl-NL')} MW t.o.v. evenredige verdeling naar vraag</small><small class="provenance-line provenance-derived">vraag: live NL-vraag verdeeld met CBS + uur/dagprofiel</small><small class="provenance-line provenance-measured">zon/wind: actuele provinciale NED-productie</small>`}
+function flowPopup(flow){return `<b>Gemodelleerde provinciale hernieuwbare flow</b><small>${flow.from} → ${flow.to} · ca. ${Math.round(flow.mw).toLocaleString('nl-NL')} MW</small><small class="provenance-line provenance-modelled">route uit provinciale hernieuwbare overschotten/tekorten</small><small>De totale actuele zon+wind wordt eerst naar geschatte provinciale vraag verdeeld. Afwijkingen worden over een vereenvoudigd buurprovincienetwerk gebalanceerd.</small><small>Dit is géén gemeten fysieke stroom op deze provinciegrens of TenneT-lijn.</small>`}
+function movingDot(a,b,mw){const r=Math.max(2.2,Math.min(4.5,1.7+Math.sqrt(mw)/16)),dot=L.circleMarker(a,{radius:r,weight:0,fillOpacity:.95,fillColor:'#ffd65a',interactive:false}).addTo(map);layers.push(dot);let t=Math.random(),last=performance.now();const tick=now=>{if(!map.hasLayer(dot))return;const dt=Math.min(50,now-last);last=now;t=(t+dt*(0.000055+Math.min(mw,1000)*0.000000012))%1;dot.setLatLng([a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t]);rafIds.push(requestAnimationFrame(tick))};rafIds.push(requestAnimationFrame(tick))}
+function draw(){
+ clear();if(!lastData||!demandModel||!visible())return;
+ const totalLoad=Number(lastData.load_mw||lastData.ned_load_mw||0);if(!(totalLoad>0))return;
+ const when=new Date(lastData.measured_at||Date.now()),demand=demandByProvince(totalLoad,when),p=lastData.generation_by_province||{},names=Object.keys(CENTERS),totalRenewable=names.reduce((s,n)=>s+renewable(p[n]),0);if(!(totalRenewable>0))return;
+ const balance={};for(const n of names){const dm=Number(demand[n]||0),expected=totalRenewable*(dm/totalLoad),actual=renewable(p[n]);balance[n]=actual-expected}
+ for(const f of routeRedistribution(balance)){const a=CENTERS[f.from],b=CENTERS[f.to],line=L.polyline([a,b],{color:'#ffd65a',weight:weight(f.mw),opacity:.56,dashArray:'5 9',interactive:true,className:'province-flow-line'}).bindPopup(flowPopup(f),{className:'grid-popup'}).addTo(map);layers.push(line);movingDot(a,b,f.mw)}
+ for(const n of names){const bucket=p[n];if(!bucket)continue;const dm=Number(demand[n]||0),expected=totalRenewable*(dm/totalLoad),net=balance[n],s=Math.max(8,Math.min(16,8+Math.sqrt(Math.abs(net))/5)),m=L.circleMarker(CENTERS[n],{radius:s/2,color:'#ffd65a',weight:1,fillColor:net>=0?'#70e58b':'#ffb454',fillOpacity:.9,interactive:true}).bindPopup(nodePopup(n,bucket,dm,expected),{className:'grid-popup'}).addTo(map);layers.push(m)}
+}
+async function refresh(){try{const r=await fetch(`data/live.json?t=${Date.now()}`,{cache:'no-store'});if(!r.ok)return;lastData=await r.json();draw()}catch(e){console.warn('province renewable flow',e)}}
+async function boot(){try{const mr=await fetch(`data/province-demand-model.json?t=${Date.now()}`,{cache:'no-store'});if(!mr.ok)throw new Error(`province demand model HTTP ${mr.status}`);demandModel=await mr.json();const filters=document.querySelector('.filters');if(filters&&!document.querySelector('#provinceFlowToggle')){const l=document.createElement('label');l.innerHTML='<input id="provinceFlowToggle" type="checkbox" checked><i class="swatch" style="background:#ffd65a"></i>provinciale hernieuwbare flow';filters.prepend(l);l.querySelector('input').addEventListener('change',draw)}await refresh();map.on('zoomend',draw);setInterval(refresh,60000)}catch(e){console.warn('province renewable flow',e)}}
 setTimeout(boot,2200);
 })();
