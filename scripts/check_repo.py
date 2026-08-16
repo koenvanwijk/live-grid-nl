@@ -41,12 +41,33 @@ def main():
     assert storage.get('thresholds') == {'storage_mw': 25}
     assert all(float(p.get('power_mw', 0)) >= 25 for p in storage.get('storage', []))
 
+    demand = load('data/province-demand-model.json')
+    assert demand.get('schema_version') == 1
+    assert demand.get('population_source', {}).get('provider') == 'CBS'
+    assert demand.get('population_source', {}).get('table') == '71488NED'
+    provinces = demand.get('provinces') or {}
+    assert len(provinces) == 12
+    pop_sum = sum(int(p.get('population', 0)) for p in provinces.values())
+    assert pop_sum == int(demand.get('population_source', {}).get('population_total', 0))
+    profiles = demand.get('profiles') or {}
+    assert set(profiles) == {'urban', 'mixed', 'industrial'}
+    for profile in profiles.values():
+        assert len(profile.get('weekday') or []) == 24
+        assert len(profile.get('weekend') or []) == 24
+        assert all(float(x) > 0 for x in profile['weekday'] + profile['weekend'])
+    assert all(p.get('profile') in profiles for p in provinces.values())
+    assert len(demand.get('assumptions') or []) >= 5
+
     province_flow = (ROOT / 'data/province-flow.js').read_text(encoding='utf-8')
-    assert 'generation_by_province' in province_flow
-    assert 'wind_onshore_mw' in province_flow and 'solar_mw' in province_flow
-    assert 'dichtstbijzijnde geschikte TenneT-locatie' in province_flow
-    assert 'gemeten fysieke' in province_flow.lower() and 'topologische visualisatie' in province_flow.lower()
+    for fragment in ('generation_by_province','wind_onshore_mw','solar_mw','province-demand-model.json','demandByProvince','load_mw','renewable balance'):
+        assert fragment in province_flow, fragment
+    assert 'gemeten fysieke' in province_flow.lower()
+    assert 'sum' in province_flow.lower()
     assert 'avg=' not in province_flow and 'EDGES=' not in province_flow
+
+    index = (ROOT / 'index.html').read_text(encoding='utf-8')
+    assert 'Aannames provinciaal gebruik' in index
+    assert 'provinciaal gebruik is een model' in index
 
     for path in ['data/capacity-scale.js','data/injections.js','data/solar-storage.js','data/interconnector-flags.js','data/capacity-overrides.js']:
         text = (ROOT / path).read_text(encoding='utf-8')
