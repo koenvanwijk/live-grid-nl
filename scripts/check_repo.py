@@ -45,7 +45,7 @@ def main():
     assert 'generation_by_province' in province_flow
     assert 'wind_onshore_mw' in province_flow and 'solar_mw' in province_flow
     assert 'dichtstbijzijnde geschikte TenneT-locatie' in province_flow
-    assert 'geen gemeten fysieke' in province_flow.lower()
+    assert 'gemeten fysieke' in province_flow.lower() and 'topologische visualisatie' in province_flow.lower()
     assert 'avg=' not in province_flow and 'EDGES=' not in province_flow
 
     for path in ['data/capacity-scale.js','data/injections.js','data/solar-storage.js','data/interconnector-flags.js','data/capacity-overrides.js']:
