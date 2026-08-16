@@ -8,7 +8,7 @@ Live: https://koenvanwijk.github.io/live-grid-nl/
 
 - **TenneT hoogspanningsnet** vanaf 110 kV: bovengrondse lijnen, kabels en stations uit de openbare ArcGIS FeatureServer.
 - **Actuele systeemwaarden**: vraag, productie, productiemix en fysieke grensstromen uit TenneT, NED en ENTSO-E, afhankelijk van de beschikbare API-tokens.
-- **Provinciale zon/wind-injecties**: actuele NED-productie van zon en wind op land per provincie wordt als gele bewegende injectie naar het dichtstbijzijnde geschikte TenneT-station getoond. De MW-waarde is gebaseerd op actuele provinciale data; de gekozen route is afgeleid uit topologie en is nadrukkelijk geen gemeten fysieke provinciegrens- of lijnstroom.
+- **Provinciale hernieuwbare balans**: actuele NED-productie van zon en wind op land wordt per provincie vergeleken met een gemodelleerde provinciale elektriciteitsvraag. Groen betekent dat zon+wind boven het vraagmodel uitkomen; oranje betekent eronder. De route naar een nabij TenneT-station is alleen een visualisatie, geen gemeten fysieke stroom.
 - **Wind op land** uit de landelijke RIVM-dataset `Windturbines – vermogen`. Individuele turbines worden automatisch geclusterd; op overzichtsniveau worden alleen clusters van minimaal 25 MW getoond. Bij verder inzoomen verschijnen individuele turbines met LOD-begrenzing.
 - **Wind op zee** met geïnstalleerd vermogen, aanlandingen en waar beschikbaar actuele NED-productie.
 - **Zonneparken** uit ROM3D **Zon op Kaart**. De ingest publiceert de volledige gerealiseerde set met bruikbaar vermogen. De frontend gebruikt zoom-LOD: landelijk ≥25 MWp, daarna ≥10 MWp, ≥5 MWp, ≥2 MWp en op detailniveau alle beschikbare parken. Meerdere SDE-records op dezelfde fysieke locatie worden eerst geaggregeerd; er wordt geen hectare-naar-MWp-schatting gebruikt.
@@ -18,6 +18,24 @@ Live: https://koenvanwijk.github.io/live-grid-nl/
 
 Alle capaciteitssymbolen gebruiken dezelfde `capacityDiameter(mw)`-schaal. Daardoor krijgt hetzelfde MW-vermogen voor wind, zon, centrale, opslag of interconnector dezelfde visuele diameter; alleen vorm en kleur verschillen.
 
+## Provinciaal vraagmodel
+
+Er is geen publieke live provinciale elektriciteitsvraagreeks die hier als meting wordt gebruikt. Daarom staat het vraagmodel expliciet los van de gemeten provinciale NED-opwek.
+
+De actuele landelijke elektriciteitsvraag wordt over de 12 provincies verdeeld met:
+
+1. **CBS-bevolking per provincie** als basisgewicht (`data/province-demand-model.json`, CBS tabel 71488NED).
+2. Een transparant **uurprofiel per dagtype** voor drie modelklassen: `urban`, `mixed` en `industrial`. Deze profielklasse is een aanname, geen provinciale meting.
+3. Na toepassing van de uurfactoren worden alle provinciale waarden opnieuw genormaliseerd, zodat op ieder tijdstip exact geldt:
+
+   `som(gemodelleerde provinciale vraag) = actuele landelijke vraag`
+
+De kaart vergelijkt vervolgens per provincie:
+
+`actuele NED zon + actuele NED wind op land - gemodelleerde provinciale vraag`
+
+Dit is dus bewust een **hernieuwbare balans**, geen volledige provinciale vermogensbalans. Gas, kernenergie, biomassa en andere lokale opwek worden hierin niet regionaal toegerekend. Alle aannames staan ook in de UI onder **Datakwaliteit → Aannames provinciaal gebruik**.
+
 ## Datakwaliteit
 
 De UI gebruikt twee onafhankelijke eigenschappen:
@@ -25,7 +43,7 @@ De UI gebruikt twee onafhankelijke eigenschappen:
 - **Herkomst**: `measured`, `derived`, `modelled`, `static`.
 - **Tijd**: `actual`, `forecast`, `none`.
 
-Belangrijk: interne TenneT-SCADA-lijnstromen en fysieke stromen tussen provincies zijn niet openbaar. De basis-hoogspanningslijnen blijven daarom neutrale assetlijnen. Grensstromen gebruiken gemeten ENTSO-E-data. Provinciale gele lijnen zijn uitsluitend een **afgeleide injectievisualisatie** van gemeten NED-zon/wind naar een nabijgelegen TenneT-station en mogen niet als fysieke load-flow worden geïnterpreteerd.
+Interne TenneT-SCADA-lijnstromen en fysieke stromen tussen provincies zijn niet openbaar. De basis-hoogspanningslijnen blijven daarom neutrale assetlijnen. Grensstromen gebruiken gemeten ENTSO-E-data. De provinciale balans combineert gemeten NED-zon/wind met een expliciet gemodelleerde vraag en mag niet als fysieke load-flow worden geïnterpreteerd.
 
 ## Databronnen
 
@@ -35,7 +53,8 @@ Belangrijk: interne TenneT-SCADA-lijnstromen en fysieke stromen tussen provincie
 | Vraag / balans | TenneT API en/of NED | gemeten | Pages workflow, elke 15 min |
 | Productiemix en grensstromen | ENTSO-E Transparency Platform | gemeten | Pages workflow, elke 15 min |
 | Regionale zon/wind en offshore productie | NED | gemeten | Pages workflow, elke 15 min |
-| Provinciale injectieroute | NED + TenneT topologie | afgeleid | browser, met actuele `live.json` |
+| Provinciale vraaggewichten | CBS tabel 71488NED + modelprofielen | gemodelleerd | statisch model |
+| Provinciale balansroute | NED + vraagmodel + TenneT topologie | afgeleid/model | browser, met actuele `live.json` |
 | Wind op land | RIVM `Windturbines – vermogen` | statische capaciteit/geometrie | dagelijks |
 | Zonneparken | ROM3D Zon op Kaart / ArcGIS | statische capaciteit/geometrie | wekelijks |
 | Grote centrales | `data/large-plants.json` | gecureerde statische capaciteit | handmatig |
@@ -84,7 +103,7 @@ python scripts/validate_observations.py
 - `NED_TOKEN`: regionale zon/wind, offshore wind en fallback voor landelijke waarden.
 - `TENNET_TOKEN`: TenneT metered-injections en balansinformatie.
 
-NED publiceert zon en wind op land per provincie. De totale elektriciteitsbelasting (type 59) is landelijk beschikbaar, niet als actuele provinciale loadreeks; daarom wordt er geen fictieve interprovinciale netto-flow berekend.
+NED publiceert zon en wind op land per provincie. De totale elektriciteitsbelasting (type 59) is landelijk beschikbaar; `province-flow.js` verdeelt die landelijke MW daarom met het transparante model uit `province-demand-model.json`.
 
 ## Statische datasets lokaal verversen
 
@@ -100,7 +119,7 @@ Zonneparken:
 python scripts/update_solar_parks.py
 ```
 
-De zonne-ingest schrijft de volledige gerealiseerde fysieke parkset naar `data/solar-parks.json`. De grens van 25 MWp is alleen nog de landelijke overzichtsdrempel in de UI, niet de ingest-drempel.
+De zonne-ingest schrijft de volledige gerealiseerde fysieke parkset naar `data/solar-parks.json`. De grens van 25 MWp is alleen de landelijke overzichtsdrempel in de UI, niet de ingest-drempel.
 
 ## GitHub Actions
 
@@ -116,23 +135,24 @@ Voor live data kunnen in **Settings → Secrets and variables → Actions** de s
 ## Belangrijkste bestanden
 
 ```text
-index.html                     statische UI en scriptvolgorde
-app.js                         TenneT-kaart, live systeemdashboard en basislagen
-styles.css                     algemene UI-styling
-data/capacity-scale.js         één gedeelde MW→diameter schaal
-data/injections.js             grote centrales en afgeleide unitproductie
-data/province-flow.js          provinciale actuele zon/wind als afgeleide netinjectie
-data/interconnectors.js        fysieke grensverbindingen en capaciteit
-data/interconnector-flags.js   vlaggen, flowstatus en grensdetails
-data/solar-storage.js          solar-LOD, wind op land en batterij-rendering
-data/solar-parks.json          volledige gerealiseerde ROM3D-zonneparkset
-data/onshore-wind-rivm.json    gegenereerde RIVM-turbines en ≥25 MW clusters
-data/solar-storage.json        handmatig geverifieerde batterijopslag
-scripts/update_live.py         actuele publieke systeemdata
-scripts/fetch_rivm_wind.py     RIVM-wind ingest en clustering
-scripts/update_solar_parks.py  ROM3D ArcGIS solar ingest en aggregatie
-scripts/check_repo.py          netwerk-vrije consistentiecheck
-tests/                         unit tests
+index.html                         statische UI en scriptvolgorde
+app.js                             TenneT-kaart, live systeemdashboard en basislagen
+styles.css                         algemene UI-styling
+data/capacity-scale.js             één gedeelde MW→diameter schaal
+data/injections.js                 grote centrales en afgeleide unitproductie
+data/province-flow.js              provinciale vraagmodellering en hernieuwbare balans
+data/province-demand-model.json    CBS-basisgewichten, profielklassen en aannames
+data/interconnectors.js            fysieke grensverbindingen en capaciteit
+data/interconnector-flags.js       vlaggen, flowstatus en grensdetails
+data/solar-storage.js              solar-LOD, wind op land en batterij-rendering
+data/solar-parks.json              volledige gerealiseerde ROM3D-zonneparkset
+data/onshore-wind-rivm.json        gegenereerde RIVM-turbines en ≥25 MW clusters
+data/solar-storage.json            handmatig geverifieerde batterijopslag
+scripts/update_live.py             actuele publieke systeemdata
+scripts/fetch_rivm_wind.py         RIVM-wind ingest en clustering
+scripts/update_solar_parks.py      ROM3D ArcGIS solar ingest en aggregatie
+scripts/check_repo.py              netwerk-vrije consistentiecheck
+tests/                             unit tests
 ```
 
 ## Ontwerpregels
@@ -144,4 +164,5 @@ tests/                         unit tests
 5. Grote objectsets krijgen LOD; duizenden Leaflet/DOM-objecten worden niet continu gerenderd.
 6. Capaciteitssymbolen delen één visuele schaal.
 7. Een ingest-workflow mag niet groen eindigen met een lege of evident onwaarschijnlijke dataset.
-8. Een getekende provinciale injectieroute mag nooit worden gepresenteerd als gemeten fysieke interprovinciale flow.
+8. Een provinciale vraagwaarde moet als model zichtbaar blijven en de som van provincies moet exact aan de actuele landelijke vraag worden genormaliseerd.
+9. Een getekende provinciale route mag nooit worden gepresenteerd als gemeten fysieke interprovinciale flow.
