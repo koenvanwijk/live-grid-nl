@@ -14,7 +14,7 @@
     "Province profile classes are modelling assumptions intended to represent a flatter industrial profile versus a stronger residential/urban morning-evening profile.",
     "Every timestep is normalised back to the measured national live demand, so modelled provincial MW always sums exactly to the national MW value.",
     "Provincial solar and onshore-wind generation are measured NED values; other provincial generation is not included in the provincial renewable balance.",
-    "Map routes to TenneT stations are visual aids, not measured physical power flows."
+    "Interprovincial renewable flows redistribute each province's deviation from a demand-proportional share of total provincial solar plus onshore wind over a simplified neighbouring-province graph. They are visual/model flows, not measured physical grid flows."
   ],
   "profiles": {
     "urban": {
