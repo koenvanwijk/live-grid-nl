@@ -16,7 +16,7 @@ class SolarParsingTests(unittest.TestCase):
     def test_capacity_mw_is_kept_as_mw(self):
         self.assertEqual(solar.capacity_mw('25,5', 'Vermogen MWp'), 25.5)
 
-    def test_colocated_records_are_aggregated_before_threshold(self):
+    def test_colocated_records_are_aggregated_for_physical_park(self):
         rows = [
             {'lat': 52.0, 'lon': 5.0, 'mw': 15.0, 'name': 'Park A', 'municipality': 'Test', 'province': 'Utrecht'},
             {'lat': 52.001, 'lon': 5.001, 'mw': 12.0, 'name': 'Park A', 'municipality': 'Test', 'province': 'Utrecht'},
@@ -27,12 +27,15 @@ class SolarParsingTests(unittest.TestCase):
         self.assertEqual(parks[0]['subsidy_records'], 2)
         self.assertEqual(parks[0]['source'], 'ROM3D Zon op Kaart')
 
-    def test_different_municipalities_are_not_merged(self):
+    def test_different_municipalities_are_not_merged_and_small_parks_survive_for_lod(self):
         rows = [
             {'lat': 52.0, 'lon': 5.0, 'mw': 20.0, 'name': 'A', 'municipality': 'One', 'province': 'Utrecht'},
             {'lat': 52.0001, 'lon': 5.0001, 'mw': 20.0, 'name': 'B', 'municipality': 'Two', 'province': 'Utrecht'},
         ]
-        self.assertEqual(solar.aggregate(rows), [])
+        parks = solar.aggregate(rows)
+        self.assertEqual(len(parks), 2)
+        self.assertEqual({p['municipality'] for p in parks}, {'One', 'Two'})
+        self.assertTrue(all(p['capacity_mwp'] == 20.0 for p in parks))
 
 
 if __name__ == '__main__':
