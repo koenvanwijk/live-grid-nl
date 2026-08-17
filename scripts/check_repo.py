@@ -67,11 +67,20 @@ def main():
     assert 'totalRenewable*(dm/totalLoad)' in province_flow
     assert 'animationGeneration' in province_flow
 
+    overlay = (ROOT / 'scripts/overlay_ned_generation_mix.py').read_text(encoding='utf-8')
+    for fragment in ('fresh_ned_value(59, 2','set_ned_load_headline','tennet_transmission_load_mw','load_mw_measured_at','generation_mw_measured_at','net_import_mw_measured_at'):
+        assert fragment in overlay, fragment
+
+    freshness = (ROOT / 'data/headline-freshness.js').read_text(encoding='utf-8')
+    for fragment in ('load_mw_measured_at','generation_mw_measured_at','net_import_mw_measured_at','TenneT transmissienet-belasting','balance_residual_mw'):
+        assert fragment in freshness, fragment
+
     index = (ROOT / 'index.html').read_text(encoding='utf-8')
     assert 'Aannames provinciaal gebruik' in index
     assert 'Provinciale gele stromen' in index
     assert 'vereenvoudigd netwerk van buurprovincies' in index
     assert 'data/province-flow.js?v=4' in index
+    assert 'data/headline-freshness.js?v=1' in index
 
     for path in ['data/capacity-scale.js','data/injections.js','data/solar-storage.js','data/interconnector-flags.js','data/capacity-overrides.js']:
         text = (ROOT / path).read_text(encoding='utf-8')
