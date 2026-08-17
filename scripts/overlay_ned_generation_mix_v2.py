@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""Run the NED generation overlay with the API's required validfrom window.
-
-NED returns HTTP 400 for utilization queries without validfrom bounds. Keep the
-existing mix logic, but replace request_latest with a standards-compliant query.
-"""
+"""Run the NED overlay with the API's required validfrom window."""
 from __future__ import annotations
 
 import importlib.util
@@ -20,7 +16,7 @@ base = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(base)
 
 
-def request_latest(type_id):
+def request_latest(type_id, activity=1):
     now = datetime.now(timezone.utc)
     start = (now - timedelta(days=1)).date().isoformat()
     end = (now + timedelta(days=1)).date().isoformat()
@@ -30,7 +26,7 @@ def request_latest(type_id):
         'granularity': 4,
         'granularitytimezone': 1,
         'classification': 2,
-        'activity': 1,
+        'activity': activity,
         'validfrom[after]': start,
         'validfrom[strictly_before]': end,
         'itemsPerPage': 1,
