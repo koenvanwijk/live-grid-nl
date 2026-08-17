@@ -50,6 +50,25 @@ class NedGenerationMixTests(unittest.TestCase):
         self.assertEqual(mapping['Steenkool'], 19)
         self.assertEqual(mapping['Kernenergie'], 20)
 
+    def test_ned_load_replaces_headline_but_preserves_tennet_metric(self):
+        data = {
+            'load_mw': 12558.0,
+            'tennet': {'metered_injections': {
+                'mw': 12558.02,
+                'measured_at': '2026-08-16T23:45',
+                'interval_end': '2026-08-17T00:00',
+            }},
+            'observations': {'system': {}},
+            'provenance': {},
+        }
+        mod.preserve_tennet_transmission_load(data)
+        mod.set_ned_load_headline(data, 14017.3, '2026-08-17T18:30:00+00:00')
+        self.assertEqual(data['load_mw'], 14017.3)
+        self.assertEqual(data['tennet_transmission_load_mw'], 12558.0)
+        self.assertEqual(data['observations']['system']['load']['source'], 'NED')
+        self.assertEqual(data['observations']['system']['tennet_transmission_load']['source'], 'TenneT')
+        self.assertEqual(data['load_mw_measured_at'], '2026-08-17T18:30:00+00:00')
+
 
 if __name__ == '__main__':
     unittest.main()
