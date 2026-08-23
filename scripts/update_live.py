@@ -9,6 +9,7 @@ TENNET_METERED='https://api.tennet.eu/publications/v1/metered-injections'
 TENNET_BALANCE='https://api.tennet.eu/publications/v1/balance-delta-high-res/latest'
 NL='10YNL----------L'
 BORDERS={'DE':'10Y1001A1001A82H','BE':'10YBE----------2','GB':'10YGB-0000A-000','NO2':'10YNO-2--------T','DK1':'10YDK-1--------W'}
+CORE_BORDERS=('DE','BE')
 PROVINCES={1:'Groningen',2:'Friesland',3:'Drenthe',4:'Overijssel',5:'Flevoland',6:'Gelderland',7:'Utrecht',8:'Noord-Holland',9:'Zuid-Holland',10:'Zeeland',11:'Noord-Brabant',12:'Limburg'}
 OFFSHORE={28:'Luchterduinen',29:'Prinses Amalia',30:'Egmond aan Zee',31:'Gemini',33:'Borssele 1&2',34:'Borssele 3&4',35:'Hollandse Kust Zuid',36:'Hollandse Kust Noord'}
 PSR_NAMES={'B01':'Biomassa','B02':'Bruinkool','B03':'Kolengas','B04':'Gas','B05':'Steenkool','B06':'Olie','B07':'Olieschalie','B08':'Turf','B09':'Geothermie','B10':'Pompaccumulatie','B11':'Waterkracht rivier','B12':'Waterkracht reservoir','B13':'Getijden/zee','B14':'Kernenergie','B15':'Overig hernieuwbaar','B16':'Zon','B17':'Afval','B18':'Wind op zee','B19':'Wind op land','B20':'Overig','B25':'Opslag'}
@@ -24,6 +25,11 @@ def get_json(url,params,headers=None):
         try:body=e.read().decode('utf-8','replace').strip().replace('\n',' ')[:500]
         except Exception:body=''
         raise ApiError(f'HTTP {e.code} {e.reason}'+(f': {body}' if body else '')) from e
+
+def parse_dt(value):
+    if not value:return None
+    try:return datetime.fromisoformat(str(value).replace('Z','+00:00')).astimezone(timezone.utc)
+    except ValueError:return None
 
 def tennet_window(hours=23):
     now=datetime.now(timezone.utc);start=now-timedelta(hours=hours);fmt='%d-%m-%Y %H:%M:%S';return start.strftime(fmt),now.strftime(fmt)
@@ -63,49 +69,85 @@ def latest_tennet_balance():
 def entso_request(params):
     url=ENTSO_API+'?'+urllib.parse.urlencode({'securityToken':ENTSO_TOKEN,**params})
     with urllib.request.urlopen(url,timeout=30) as r:return r.read()
-def points(xml_bytes):
-    vals=[]
-    for el in ET.fromstring(xml_bytes).iter():
-        if el.tag.endswith('quantity'):
-            try:vals.append(float(el.text))
-            except (TypeError,ValueError):pass
-    return vals
-def entso_last(params):
-    vals=points(entso_request(params));return vals[-1] if vals else None
 def entso_window():
-    now=datetime.now(timezone.utc);start=now-timedelta(hours=6);end=now+timedelta(hours=1);fmt='%Y%m%d%H%M';return start.strftime(fmt),end.strftime(fmt)
+    now=datetime.now(timezone.utc);start=now-timedelta(hours=8);end=now+timedelta(hours=1);fmt='%Y%m%d%H%M';return start.strftime(fmt),end.strftime(fmt)
 def local_name(tag):return tag.rsplit('}',1)[-1]
 def child_text(node,*names):
     wanted=set(names)
     for el in node.iter():
         if local_name(el.tag) in wanted and el.text:return el.text.strip()
     return None
-def entso_generation_mix(start,end):
-    root=ET.fromstring(entso_request({'documentType':'A75','processType':'A16','in_Domain':NL,'periodStart':start,'periodEnd':end}));mix={};latest_at=None
+
+def resolution_seconds(value):
+    return {'PT15M':900,'PT30M':1800,'PT60M':3600,'PT1H':3600}.get(value,900)
+def series_points(series):
+    out={}
+    for period in series.iter():
+        if local_name(period.tag)!='Period':continue
+        start_el=child_text(period,'start');seconds=resolution_seconds(child_text(period,'resolution') or 'PT15M')
+        start=parse_dt(start_el)
+        if not start:continue
+        for point in period:
+            if local_name(point.tag)!='Point':continue
+            pos=child_text(point,'position');qty=child_text(point,'quantity')
+            try:ts=start+timedelta(seconds=seconds*(int(pos or '1')-1));value=float(qty)
+            except (TypeError,ValueError):continue
+            out[ts.replace(microsecond=0).isoformat()]=value
+    return out
+
+def entso_load_series(start,end):
+    root=ET.fromstring(entso_request({'documentType':'A65','processType':'A16','outBiddingZone_Domain':NL,'periodStart':start,'periodEnd':end}));out={}
+    for series in root.iter():
+        if local_name(series.tag)!='TimeSeries':continue
+        for ts,val in series_points(series).items():out[ts]=out.get(ts,0.0)+val
+    return out
+
+def entso_generation_series(start,end):
+    root=ET.fromstring(entso_request({'documentType':'A75','processType':'A16','in_Domain':NL,'periodStart':start,'periodEnd':end}));out={}
     for series in root.iter():
         if local_name(series.tag)!='TimeSeries':continue
         psr=child_text(series,'psrType')
         if not psr:continue
         has_in=any(local_name(el.tag)=='inBiddingZone_Domain.mRID' for el in series.iter());has_out=any(local_name(el.tag)=='outBiddingZone_Domain.mRID' for el in series.iter())
         if has_out and not has_in:continue
-        latest=None
-        for period in series.iter():
-            if local_name(period.tag)!='Period':continue
-            start_el=child_text(period,'start');resolution=child_text(period,'resolution') or 'PT15M';seconds=900 if resolution=='PT15M' else 3600 if resolution=='PT60M' else 900
-            try:period_start=datetime.fromisoformat(start_el.replace('Z','+00:00')) if start_el else None
-            except ValueError:period_start=None
-            for point in period:
-                if local_name(point.tag)!='Point':continue
-                pos=child_text(point,'position');qty=child_text(point,'quantity')
-                if qty is None:continue
-                try:value=float(qty)
-                except ValueError:continue
-                ts=period_start+timedelta(seconds=seconds*(int(pos or '1')-1)) if period_start else None;key=ts.isoformat() if ts else ''
-                if latest is None or key>latest[0]:latest=(key,value)
-        if latest:
-            mix[psr]=mix.get(psr,0.0)+latest[1]
-            if latest[0] and (latest_at is None or latest[0]>latest_at):latest_at=latest[0]
-    rows=[{'code':c,'name':PSR_NAMES.get(c,c),'mw':round(mw,1)} for c,mw in mix.items() if abs(mw)>=.05];rows.sort(key=lambda x:x['mw'],reverse=True);return rows,latest_at
+        for ts,val in series_points(series).items():out.setdefault(ts,{})[psr]=out.setdefault(ts,{}).get(psr,0.0)+val
+    return out
+
+def entso_direction_series(in_domain,out_domain,start,end):
+    root=ET.fromstring(entso_request({'documentType':'A11','in_Domain':in_domain,'out_Domain':out_domain,'periodStart':start,'periodEnd':end}));out={}
+    for series in root.iter():
+        if local_name(series.tag)!='TimeSeries':continue
+        for ts,val in series_points(series).items():out[ts]=out.get(ts,0.0)+val
+    return out
+
+def entso_border_series(other,start,end):
+    # ENTSO-E physical-flow convention: in_Domain receives, out_Domain sends.
+    inbound=entso_direction_series(NL,other,start,end)
+    outbound=entso_direction_series(other,NL,start,end)
+    stamps=set(inbound)|set(outbound)
+    return {ts:inbound.get(ts,0.0)-outbound.get(ts,0.0) for ts in stamps}
+
+def latest_common_timestamp(load,gen,borders):
+    common=set(load)&set(gen)
+    for label in CORE_BORDERS:
+        if borders.get(label):common &= set(borders[label])
+    if not common:return None
+    # Avoid selecting an interval that starts in the future relative to collector time.
+    now=datetime.now(timezone.utc)
+    valid=[ts for ts in common if (parse_dt(ts) or now)<=now]
+    return max(valid or common)
+
+def aligned_entso_balance(start,end):
+    load=entso_load_series(start,end);gen=entso_generation_series(start,end);borders={}
+    for label,domain in BORDERS.items():borders[label]=entso_border_series(domain,start,end)
+    ts=latest_common_timestamp(load,gen,borders)
+    if not ts:raise ApiError('ENTSO-E: no common timestamp for load, generation and DE/BE border flows')
+    mix=[{'code':code,'name':PSR_NAMES.get(code,code),'mw':round(mw,1)} for code,mw in gen[ts].items() if abs(mw)>=.05]
+    mix.sort(key=lambda r:r['mw'],reverse=True)
+    flows={label:round(series[ts],1) for label,series in borders.items() if ts in series}
+    generation=round(sum(r['mw'] for r in mix),1);net_import=round(sum(flows.values()),1)
+    residual=round(load[ts]-generation-net_import,1)
+    return {'timestamp':ts,'load_mw':round(load[ts],1),'generation_mw':generation,'generation_mix':mix,'border_flows':flows,'net_import_mw':net_import,'balance_residual_mw':residual}
 
 def entso_installed_capacity():
     now=datetime.now(timezone.utc);y=now.year;start=f'{y}01010000';end=f'{y+1}01010000'
@@ -121,16 +163,14 @@ def entso_installed_capacity():
                 except (TypeError,ValueError):pass
         if vals:caps[psr]=caps.get(psr,0.0)+max(vals)
     return {k:round(v,1) for k,v in caps.items() if v>0}
-def border_flow(other,start,end):
-    inbound=entso_last({'documentType':'A11','in_Domain':other,'out_Domain':NL,'periodStart':start,'periodEnd':end}) or 0.;outbound=entso_last({'documentType':'A11','in_Domain':NL,'out_Domain':other,'periodStart':start,'periodEnd':end}) or 0.;return inbound-outbound
 
 def main():
     OUT.parent.mkdir(parents=True,exist_ok=True);now=datetime.now(timezone.utc)
-    data={'status':'no-data','generated_at':now.isoformat(),'measured_at':None,'load_mw':None,'generation_mw':None,'generation_mix':[],'installed_capacity_by_type':{},'net_import_mw':None,'border_flows':{},'generation_by_province':{},'offshore_wind_mw':{},'tennet':{},'sources':[],'warnings':[]}
+    data={'status':'no-data','generated_at':now.isoformat(),'measured_at':None,'balance_timestamp':None,'national_balance_source':None,'load_mw':None,'generation_mw':None,'generation_mix':[],'installed_capacity_by_type':{},'net_import_mw':None,'border_flows':{},'generation_by_province':{},'offshore_wind_mw':{},'tennet':{},'sources':[],'warnings':[]}
     if TENNET_TOKEN:
         try:
             m=latest_tennet_metered()
-            if m:data['load_mw']=round(m['mw'],1);data['measured_at']=m.get('measured_at');data['tennet']['metered_injections']=m
+            if m:data['tennet']['metered_injections']=m
         except Exception as e:data['warnings'].append('TenneT metered injections: '+str(e))
         try:
             b=latest_tennet_balance()
@@ -140,11 +180,11 @@ def main():
     if NED_TOKEN:
         try:
             load=latest_ned(0,59,2)
-            if load:data['ned_load_mw']=round(load['mw'],1);data['load_mw']=data['load_mw'] if data['load_mw'] is not None else data['ned_load_mw'];data['measured_at']=data['measured_at'] or load['validfrom']
+            if load:data['ned_load_mw']=round(load['mw'],1);data['ned_load_measured_at']=load['validfrom']
         except Exception as e:data['warnings'].append('NED load: '+str(e))
         try:
-            mix=latest_ned(0,27,1)
-            if mix:data['generation_mw']=round(mix['mw'],1);data['measured_at']=max(filter(None,[data['measured_at'],mix['validfrom']]))
+            prod=latest_ned(0,27,1)
+            if prod:data['ned_generation_mw']=round(prod['mw'],1);data['ned_generation_measured_at']=prod['validfrom']
         except Exception as e:data['warnings'].append('NED generation: '+str(e))
         for pid,name in PROVINCES.items():
             bucket={}
@@ -163,18 +203,19 @@ def main():
     if ENTSO_TOKEN:
         start,end=entso_window()
         try:
-            mix,mix_at=entso_generation_mix(start,end)
-            if mix:data['generation_mix']=mix;data['generation_mw']=round(sum(r['mw'] for r in mix),1);data['measured_at']=max(filter(None,[data['measured_at'],mix_at])) if mix_at else data['measured_at']
-        except Exception as e:data['warnings'].append('ENTSO-E generation mix: '+str(e))
+            b=aligned_entso_balance(start,end)
+            data.update({k:b[k] for k in ('load_mw','generation_mw','generation_mix','border_flows','net_import_mw','balance_residual_mw')})
+            data['balance_timestamp']=b['timestamp'];data['measured_at']=b['timestamp'];data['national_balance_source']='ENTSO-E aligned';data['balance_equation']='vraag = opwek + netto import + restverschil'
+        except Exception as e:data['warnings'].append('ENTSO-E aligned balance: '+str(e))
         try:data['installed_capacity_by_type']=entso_installed_capacity()
         except Exception as e:data['warnings'].append('ENTSO-E installed capacity: '+str(e))
-        for label,domain in BORDERS.items():
-            try:data['border_flows'][label]=round(border_flow(domain,start,end),1)
-            except Exception as e:data['warnings'].append(f'ENTSO-E {label}: {e}')
-        if data['border_flows']:data['net_import_mw']=round(sum(data['border_flows'].values()),1)
         data['sources'].append('ENTSO-E')
+    # Fallback only when a complete aligned ENTSO-E national balance is unavailable.
+    if data['national_balance_source'] is None:
+        if data.get('ned_load_mw') is not None:data['load_mw']=data['ned_load_mw'];data['measured_at']=data.get('ned_load_measured_at');data['national_balance_source']='NED partial fallback'
+        if data.get('ned_generation_mw') is not None:data['generation_mw']=data['ned_generation_mw'];data['measured_at']=max(filter(None,[data.get('measured_at'),data.get('ned_generation_measured_at')]))
     if data['load_mw'] is not None or data['generation_mw'] is not None or data['tennet'] or data['generation_by_province'] or data['offshore_wind_mw'] or data['border_flows']:data['status']='ok'
-    elif not NED_TOKEN and not TENNET_TOKEN and not ENTSO_TOKEN:data['status']='token-missing';data['warnings'].append('Configure NED_TOKEN and TENNET_TOKEN in GitHub Actions secrets.')
+    elif not NED_TOKEN and not TENNET_TOKEN and not ENTSO_TOKEN:data['status']='token-missing';data['warnings'].append('Configure NED_TOKEN, TENNET_TOKEN and ENTSO_E_TOKEN in GitHub Actions secrets.')
     else:data['status']='error'
     if not data['measured_at'] and data['status']=='ok':data['measured_at']=now.replace(minute=(now.minute//15)*15,second=0,microsecond=0).isoformat()
     OUT.write_text(json.dumps(data,indent=2,ensure_ascii=False)+'\n');print(json.dumps(data,indent=2,ensure_ascii=False))
