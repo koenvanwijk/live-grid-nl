@@ -39,6 +39,31 @@ jobs:
           python scripts/overlay_ned_generation_mix_v2.py
           python scripts/write_status.py
 
+      - name: Diagnose ENTSO-E balance
+        if: always()
+        env:
+          ENTSO_E_TOKEN: ${{ secrets.ENTSO_E_TOKEN }}
+        run: |
+          python scripts/diagnose_entsoe_balance.py
+          echo '## ENTSO-E raw balance diagnostic' >> "$GITHUB_STEP_SUMMARY"
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          d=json.load(open('data/entsoe-diagnostics.json'))
+          s=d['summary']
+          print(f"- timestamp: {d['target_timestamp']}")
+          print(f"- load: {s['load_mw']} MW")
+          print(f"- production: {s['production_mw']} MW")
+          print(f"- generation consumption: {s['generation_consumption_mw']} MW")
+          print(f"- net generation: {s['net_generation_mw']} MW")
+          print(f"- net import: {s['net_import_mw']} MW")
+          print(f"- residual: {s['residual_mw']} MW")
+          for country, row in d['a11_borders_at_target'].items():
+              print(f"- {country}: import {row['import_mw']} / export {row['export_mw']} / net {row['net_import_mw']} MW")
+          print('### A75 raw series')
+          for row in d['a75_generation_series_at_target']:
+              print(f"- {row.get('psrType')} {row.get('businessType')} {row.get('classification')}: {row.get('mw')} MW · in={row.get('in_domain')} out={row.get('out_domain')} · mRID={row.get('mRID')}")
+          PY
+
       - name: Show snapshot status
         run: |
           cat data/status.json
@@ -67,6 +92,7 @@ jobs:
           path: |
             data/live.json
             data/status.json
+            data/entsoe-diagnostics.json
           retention-days: 14
 
       - name: Prepare static site
