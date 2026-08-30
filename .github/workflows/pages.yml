@@ -35,6 +35,7 @@ jobs:
           ENTSO_E_TOKEN: ${{ secrets.ENTSO_E_TOKEN }}
         run: |
           python scripts/update_live.py
+          python scripts/align_entso_balance_v2.py
           python scripts/enrich_provenance.py
           python scripts/overlay_ned_generation_mix_v2.py
           python scripts/write_status.py
@@ -71,6 +72,18 @@ jobs:
           echo '```json' >> "$GITHUB_STEP_SUMMARY"
           cat data/status.json >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo '## Strict ENTSO-E balance' >> "$GITHUB_STEP_SUMMARY"
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          d=json.load(open('data/live.json'))
+          x=d.get('entso_diagnostics',{})
+          print(f"- timestamp: {x.get('timestamp')}")
+          print(f"- A65 load: {x.get('a65_load_mw')} MW")
+          print(f"- A11 borders: {x.get('a11_border_mw')}")
+          print(f"- residual: {x.get('residual_mw')} MW")
+          for row in x.get('a75_timeseries',[]):
+              print(f"- A75 {row.get('direction')} {row.get('psr_name')} ({row.get('psr_type')} / {row.get('business_type')}): {row.get('mw')} MW; in={row.get('in_domain')} out={row.get('out_domain')}")
+          PY
           echo '## Generation mix freshness' >> "$GITHUB_STEP_SUMMARY"
           python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
           import json
