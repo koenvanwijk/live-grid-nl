@@ -3,7 +3,9 @@ const PdokBase='https://api.pdok.nl/kadaster/brk-bestuurlijke-gebieden/ogc/v1/co
 const STATION_ZOOM=8.7;
 const map=L.map('map',{zoomControl:false,preferCanvas:false}).setView([52.18,5.35],7.35);
 L.control.zoom({position:'bottomright'}).addTo(map);
-L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{maxZoom:18,attribution:'&copy; OpenStreetMap &copy; CARTO · Grid assets: TenneT TSO B.V. · Grenzen: PDOK/Kadaster'}).addTo(map);
+const esriAttr='Tiles &copy; Esri &mdash; Esri, HERE, Garmin, &copy; OpenStreetMap contributors · Grid assets: TenneT TSO B.V. · Grenzen: PDOK/Kadaster';
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',{maxNativeZoom:16,maxZoom:18,attribution:esriAttr}).addTo(map);
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}',{maxNativeZoom:16,maxZoom:18,attribution:''}).addTo(map);
 const assetColor='#8293a3';const lineLayers=[],cableLayers=[],flowPaths=[],offshoreLayers=[],interconnectorLayers=[];let stationLayer,lastLive=null;
 const countryNames={DE:'Duitsland',BE:'België',GB:'Groot-Brittannië',NO2:'Noorwegen',DK1:'Denemarken'};
 function endpoint(layer){return `${TennetBase}/${layer}/query?where=1%3D1&outFields=*&outSR=4326&returnGeometry=true&f=geojson`}
