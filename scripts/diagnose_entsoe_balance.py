@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -269,5 +270,31 @@ def main():
         print("A11", label, values["net_import_mw"], "MW net import")
 
 
+def write_unavailable(reason):
+    """Write a valid, empty diagnostics file so the workflow summary step and
+    any consumer can still read the expected keys during a transient ENTSO-E
+    outage, instead of failing the whole deploy."""
+    output = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "target_timestamp": None,
+        "error": reason,
+        "summary": {
+            "load_mw": None,
+            "production_mw": None,
+            "generation_consumption_mw": None,
+            "net_generation_mw": None,
+            "net_import_mw": None,
+            "residual_mw": None,
+        },
+        "a11_borders_at_target": {},
+        "a75_generation_series_at_target": [],
+    }
+    OUT.write_text(json.dumps(output, indent=2, ensure_ascii=False) + "\n")
+    print(f"ENTSO-E diagnostics unavailable: {reason}")
+
+
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except (urllib.error.URLError, TimeoutError, OSError, RuntimeError) as exc:
+        write_unavailable(str(exc))

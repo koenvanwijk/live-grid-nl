@@ -7,6 +7,7 @@ A65 load, A75 production/consumption and A11 flows for *all* NL borders must
 exist at the selected timestamp.
 """
 import json
+import urllib.error
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from pathlib import Path
@@ -14,6 +15,20 @@ from pathlib import Path
 import update_live as u
 
 OUT = Path('data/live.json')
+
+
+def keep_fallback(reason):
+    """Record why the strict v2 balance was skipped and keep the existing
+    (NED fallback) balance written by update_live.py.  A transient ENTSO-E
+    outage must not fail the Pages deploy."""
+    print(f'ENTSO-E v2: keeping existing balance ({reason})')
+    try:
+        data = json.loads(OUT.read_text())
+    except (OSError, ValueError):
+        return
+    warnings = data.setdefault('warnings', [])
+    warnings.append(f'ENTSO-E aligned balance v2: {reason}')
+    OUT.write_text(json.dumps(data, ensure_ascii=False, indent=2) + '\n')
 
 
 def domain(series, prefix):
@@ -71,10 +86,16 @@ def main():
         print('ENTSO_E_TOKEN missing; keeping existing balance')
         return
 
-    start, end = u.entso_window()
-    load = u.entso_load_series(start, end)
-    production, prod_rows = a75_series(start, end, 'production')
-    consumption, cons_rows = a75_series(start, end, 'consumption')
+    try:
+        start, end = u.entso_window()
+        load = u.entso_load_series(start, end)
+        production, prod_rows = a75_series(start, end, 'production')
+        consumption, cons_rows = a75_series(start, end, 'consumption')
+        borders = {label: u.entso_border_series(domain_id, start, end)
+                   for label, domain_id in u.BORDERS.items()}
+    except (u.ApiError, urllib.error.URLError, TimeoutError, OSError) as exc:
+        keep_fallback(str(exc))
+        return
 
     # Merge production and negative consumption.  Query overlap is made
     # visible in diagnostics rather than silently hidden.
@@ -86,11 +107,10 @@ def main():
                 bucket[psr] = bucket.get(psr, 0.0) + mw
         generation[ts] = bucket
 
-    borders = {label: u.entso_border_series(domain_id, start, end)
-               for label, domain_id in u.BORDERS.items()}
     ts = strict_timestamp(load, generation, borders)
     if not ts:
-        raise u.ApiError('ENTSO-E v2: no timestamp shared by A65, A75 and all five NL borders')
+        keep_fallback('no timestamp shared by A65, A75 and all five NL borders')
+        return
 
     mix = [{'code': code, 'name': u.PSR_NAMES.get(code, code), 'mw': round(mw, 1)}
            for code, mw in generation[ts].items() if abs(mw) >= .05]
