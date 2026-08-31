@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -63,13 +64,25 @@ def resolution_seconds(value):
     return {"PT15M": 900, "PT30M": 1800, "PT60M": 3600, "PT1H": 3600}.get(value, 900)
 
 
-def request(params):
+def request(params, retries=3, backoff=2.0):
     if not TOKEN:
         raise RuntimeError("ENTSO_E_TOKEN missing")
     url = API + "?" + urllib.parse.urlencode({"securityToken": TOKEN, **params})
     req = urllib.request.Request(url, headers={"User-Agent": "live-grid-nl/1.0 (+https://github.com/koenvanwijk/live-grid-nl)"})
-    with urllib.request.urlopen(req, timeout=30) as response:
-        return response.read()
+    for attempt in range(retries):
+        try:
+            with urllib.request.urlopen(req, timeout=30) as response:
+                return response.read()
+        except urllib.error.HTTPError as exc:
+            if exc.code in {502, 503, 504} and attempt < retries - 1:
+                time.sleep(backoff * 2 ** attempt)
+                continue
+            raise
+        except OSError:  # URLError, TimeoutError and other socket errors
+            if attempt < retries - 1:
+                time.sleep(backoff * 2 ** attempt)
+                continue
+            raise
 
 
 def point_map(series):

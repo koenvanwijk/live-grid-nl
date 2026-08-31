@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-import json, os, urllib.error, urllib.parse, urllib.request, xml.etree.ElementTree as ET
+import json, os, time, urllib.error, urllib.parse, urllib.request, xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+USER_AGENT='live-grid-nl/1.0 (+https://github.com/koenvanwijk/live-grid-nl)'
+RETRY_STATUS={502,503,504}
 ENTSO_API='https://web-api.tp.entsoe.eu/api'
 NED_API='https://api.ned.nl/v1/utilizations'
 TENNET_METERED='https://api.tennet.eu/publications/v1/metered-injections'
@@ -66,9 +68,18 @@ def latest_tennet_balance():
     rows=response_points(tennet_json(TENNET_BALANCE))
     if not rows:return None
     row=max(rows,key=lambda x:x.get('timeInterval_start',''));names=('power_afrr_in','power_afrr_out','power_igcc_in','power_igcc_out','power_mfrrda_in','power_mfrrda_out','power_picasso_in','power_picasso_out','power_mari_in','power_mari_out');fields={n:number(row.get(n)) for n in names};up=sum(v for k,v in fields.items() if k.endswith('_in'));down=sum(v for k,v in fields.items() if k.endswith('_out'));return {'measured_at':row.get('timeInterval_start'),'up_mw':round(up,1),'down_mw':round(down,1),'delta_mw':round(up-down,1),**fields}
-def entso_request(params):
+def entso_request(params,retries=3,backoff=2.0):
     url=ENTSO_API+'?'+urllib.parse.urlencode({'securityToken':ENTSO_TOKEN,**params})
-    with urllib.request.urlopen(url,timeout=30) as r:return r.read()
+    req=urllib.request.Request(url,headers={'User-Agent':USER_AGENT})
+    for attempt in range(retries):
+        try:
+            with urllib.request.urlopen(req,timeout=30) as r:return r.read()
+        except urllib.error.HTTPError as e:
+            if e.code in RETRY_STATUS and attempt<retries-1:time.sleep(backoff*2**attempt);continue
+            raise
+        except OSError:  # URLError, TimeoutError and other socket errors
+            if attempt<retries-1:time.sleep(backoff*2**attempt);continue
+            raise
 def entso_window():
     now=datetime.now(timezone.utc);start=now-timedelta(hours=8);end=now+timedelta(hours=1);fmt='%Y%m%d%H%M';return start.strftime(fmt),end.strftime(fmt)
 def local_name(tag):return tag.rsplit('}',1)[-1]
