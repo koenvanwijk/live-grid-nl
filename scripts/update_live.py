@@ -168,7 +168,15 @@ def aligned_entso_balance(start,end):
     if not ts:raise ApiError('ENTSO-E: no common timestamp for load, generation and DE/BE border flows')
     mix=[{'code':code,'name':PSR_NAMES.get(code,code),'mw':round(mw,1)} for code,mw in gen[ts].items() if abs(mw)>=.05]
     mix.sort(key=lambda r:r['mw'],reverse=True)
-    flows={label:round(series[ts],1) for label,series in borders.items() if ts in series}
+    # Include every border. Synchronised links (DE/BE) have the chosen ts;
+    # slower/lagging links (GB/NO2/DK1) fall back to their latest value <= now
+    # so all five interconnector flags show an actual flow.
+    now=datetime.now(timezone.utc);flows={}
+    for label,series in borders.items():
+        if not series:continue
+        if ts in series:flows[label]=round(series[ts],1);continue
+        past=[t for t in series if (parse_dt(t) or now)<=now]
+        if past:flows[label]=round(series[max(past)],1)
     generation=round(sum(r['mw'] for r in mix),1);net_import=round(sum(flows.values()),1)
     residual=round(load[ts]-generation-net_import,1)
     return {'timestamp':ts,'load_mw':round(load[ts],1),'generation_mw':generation,'generation_mix':mix,'border_flows':flows,'net_import_mw':net_import,'balance_residual_mw':residual}
