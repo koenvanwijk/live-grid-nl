@@ -35,10 +35,16 @@ def domain(series, prefix):
     return u.child_text(series, f'{prefix}BiddingZone_Domain.mRID', f'{prefix}_Domain.mRID')
 
 
+CONSUMPTION_BUSINESS = 'A04'  # A75 consumption (e.g. pumped-storage charging)
+
+
 def a75_series(start, end, direction):
-    key = 'in_Domain' if direction == 'production' else 'out_Domain'
+    # A75 (actual generation per type) must always be queried with in_Domain;
+    # ENTSO-E rejects an out_Domain query with 400 "Mandatory parameter
+    # In_Domain is missing". Production vs consumption is distinguished by the
+    # per-series businessType (A04 = consumption), not by the query domain.
     root = ET.fromstring(u.entso_request({
-        'documentType': 'A75', 'processType': 'A16', key: u.NL,
+        'documentType': 'A75', 'processType': 'A16', 'in_Domain': u.NL,
         'periodStart': start, 'periodEnd': end,
     }))
     rows = []
@@ -50,6 +56,9 @@ def a75_series(start, end, direction):
         if not psr:
             continue
         business = u.child_text(series, 'businessType')
+        is_consumption = business == CONSUMPTION_BUSINESS
+        if (direction == 'consumption') != is_consumption:
+            continue
         in_domain = domain(series, 'in')
         out_domain = domain(series, 'out')
         points = u.series_points(series)
