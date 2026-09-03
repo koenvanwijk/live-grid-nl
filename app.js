@@ -4,8 +4,25 @@ const STATION_ZOOM=8.7;
 const map=L.map('map',{zoomControl:false,preferCanvas:false}).setView([52.18,5.35],7.35);
 L.control.zoom({position:'bottomright'}).addTo(map);
 const esriAttr='Tiles &copy; Esri &mdash; Esri, HERE, Garmin, &copy; OpenStreetMap contributors · Grid assets: TenneT TSO B.V. · Grenzen: PDOK/Kadaster';
-L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',{maxNativeZoom:16,maxZoom:18,attribution:esriAttr}).addTo(map);
-L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}',{maxNativeZoom:16,maxZoom:18,attribution:''}).addTo(map);
+const satAttr='Luchtbeelden &copy; Esri &mdash; Maxar, Earthstar Geographics · Grid assets: TenneT TSO B.V. · Grenzen: PDOK/Kadaster';
+// Deep zoom swaps the dark basemap for Esri aerial imagery so real ground
+// features (e.g. solar parks) become visible; both are keyless Esri tiles.
+const SAT_ZOOM=15;
+const darkBase=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',{maxNativeZoom:16,maxZoom:19,attribution:esriAttr}).addTo(map);
+const darkRef=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}',{maxNativeZoom:16,maxZoom:19,attribution:''}).addTo(map);
+const satBase=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxNativeZoom:19,maxZoom:19,attribution:satAttr});
+const satRef=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',{maxNativeZoom:19,maxZoom:19,attribution:''});
+let satActive=false;
+function syncBasemap(){
+  const wantSat=map.getZoom()>=SAT_ZOOM;
+  if(wantSat===satActive)return;
+  satActive=wantSat;
+  if(wantSat){satBase.addTo(map);satRef.addTo(map);map.removeLayer(darkBase);map.removeLayer(darkRef);}
+  else{darkBase.addTo(map);darkRef.addTo(map);map.removeLayer(satBase);map.removeLayer(satRef);}
+  document.body.classList.toggle('satellite',wantSat);
+}
+map.on('zoomend',syncBasemap);
+syncBasemap();
 const assetColor='#8293a3';const lineLayers=[],cableLayers=[],flowPaths=[],offshoreLayers=[],interconnectorLayers=[];let stationLayer,lastLive=null;
 const countryNames={DE:'Duitsland',BE:'België',GB:'Groot-Brittannië',NO2:'Noorwegen',DK1:'Denemarken'};
 function endpoint(layer){return `${TennetBase}/${layer}/query?where=1%3D1&outFields=*&outSR=4326&returnGeometry=true&f=geojson`}
