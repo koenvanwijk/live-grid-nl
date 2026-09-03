@@ -68,6 +68,18 @@ def latest_tennet_balance():
     rows=response_points(tennet_json(TENNET_BALANCE))
     if not rows:return None
     row=max(rows,key=lambda x:x.get('timeInterval_start',''));names=('power_afrr_in','power_afrr_out','power_igcc_in','power_igcc_out','power_mfrrda_in','power_mfrrda_out','power_picasso_in','power_picasso_out','power_mari_in','power_mari_out');fields={n:number(row.get(n)) for n in names};up=sum(v for k,v in fields.items() if k.endswith('_in'));down=sum(v for k,v in fields.items() if k.endswith('_out'));return {'measured_at':row.get('timeInterval_start'),'up_mw':round(up,1),'down_mw':round(down,1),'delta_mw':round(up-down,1),**fields}
+def entso_query_hint(params):
+    keys=('documentType','processType','in_Domain','out_Domain','outBiddingZone_Domain','inBiddingZone_Domain')
+    return ' '.join(f'{k}={params[k]}' for k in keys if k in params)
+def entso_error_body(err):
+    try:body=err.read().decode('utf-8','replace')
+    except Exception:return ''
+    if body.strip().startswith('<'):
+        try:
+            texts=[(m.text or '').strip() for m in ET.fromstring(body).iter() if local_name(m.tag) in ('text','Text','Reason') and (m.text or '').strip()]
+            if texts:return ' | '.join(texts)[:300]
+        except Exception:pass
+    return body.strip().replace('\n',' ')[:300]
 def entso_request(params,retries=3,backoff=2.0):
     url=ENTSO_API+'?'+urllib.parse.urlencode({'securityToken':ENTSO_TOKEN,**params})
     req=urllib.request.Request(url,headers={'User-Agent':USER_AGENT})
@@ -76,7 +88,8 @@ def entso_request(params,retries=3,backoff=2.0):
             with urllib.request.urlopen(req,timeout=30) as r:return r.read()
         except urllib.error.HTTPError as e:
             if e.code in RETRY_STATUS and attempt<retries-1:time.sleep(backoff*2**attempt);continue
-            raise
+            body=entso_error_body(e)
+            raise ApiError(f'HTTP {e.code} {e.reason} [{entso_query_hint(params)}]'+(f': {body}' if body else '')) from e
         except OSError:  # URLError, TimeoutError and other socket errors
             if attempt<retries-1:time.sleep(backoff*2**attempt);continue
             raise
