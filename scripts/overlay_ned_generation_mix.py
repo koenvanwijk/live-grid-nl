@@ -31,8 +31,8 @@ def fresh(row,now=None):
     age=age_minutes(row.get('validfrom'),now);return age is not None and age<=MAX_AGE_MINUTES
 
 def request_latest(type_id,activity=1):
-    now=datetime.now(timezone.utc);start=now.date().isoformat();end=(now.date()).isoformat()
-    params={'point':0,'type':type_id,'granularity':4,'granularitytimezone':1,'classification':2,'activity':activity,'validfrom[after]':(now.date()).isoformat(),'validfrom[strictly_before]':(now.replace(day=now.day)+__import__('datetime').timedelta(days=1)).date().isoformat(),'itemsPerPage':1,'order[validfrom]':'desc'}
+    now=datetime.now(timezone.utc)
+    params={'point':0,'type':type_id,'granularity':4,'granularitytimezone':1,'classification':2,'activity':activity,'validfrom[after]':now.date().isoformat(),'validfrom[strictly_before]':(now.replace(day=now.day)+__import__('datetime').timedelta(days=1)).date().isoformat(),'itemsPerPage':1,'order[validfrom]':'desc'}
     req=urllib.request.Request(NED_API+'?'+urllib.parse.urlencode(params),headers={'X-AUTH-TOKEN':TOKEN,'Accept':'application/ld+json','User-Agent':'live-grid-nl/1.0 (+https://github.com/koenvanwijk/live-grid-nl)'})
     with urllib.request.urlopen(req,timeout=30) as response:data=json.load(response)
     rows=data if isinstance(data,list) else data.get('hydra:member') or data.get('member') or data.get('data') or []
@@ -57,7 +57,23 @@ def fresh_ned_value(type_id,activity,label,warnings):
 def preserve_tennet(data):
     m=data.get('tennet',{}).get('metered_injections') or {}
     if m.get('mw') is None:return
-    data['tennet_transmission_load_mw']=round(float(m['mw']),1);data['tennet_transmission_load_measured_at']=m.get('measured_at')
+    data['tennet_transmission_load_mw']=round(float(m['mw']),1)
+    data['tennet_transmission_load_measured_at']=m.get('measured_at')
+
+def preserve_tennet_transmission_load(data):
+    """Backward-compatible helper used by tests and older callers."""
+    preserve_tennet(data)
+    if data.get('tennet_transmission_load_mw') is None:return
+    data.setdefault('observations',{}).setdefault('system',{})['tennet_transmission_load']={
+        'value':data['tennet_transmission_load_mw'],'unit':'MW','provenance':'measured','temporal':'actual',
+        'source':'TenneT','measured_at':data.get('tennet_transmission_load_measured_at')}
+
+def set_ned_load_headline(data,value,ts):
+    """Set NED load as headline for fallback mode while keeping provenance explicit."""
+    if value is None:return
+    data['load_mw']=value;data['load_mw_measured_at']=ts
+    data.setdefault('observations',{}).setdefault('system',{})['load']={
+        'value':value,'unit':'MW','provenance':'measured','temporal':'actual','source':'NED','measured_at':ts}
 
 def set_ned_comparison(data,key,value,ts,end=None,published=None):
     if value is None:return
@@ -65,8 +81,8 @@ def set_ned_comparison(data,key,value,ts,end=None,published=None):
     data.setdefault('observations',{}).setdefault('comparison',{})[key]={'value':value,'unit':'MW','provenance':'measured' if key=='ned_load_mw' else 'derived','temporal':'actual','source':'NED','measured_at':ts,'interval_start':ts,'interval_end':end,'published_at':published}
 
 def apply_ned_fallback(data,load,load_ts,total,total_ts):
-    if data.get('national_balance_source')=='ENTSO-E aligned':return
-    if load is not None:data['load_mw']=load;data['load_mw_measured_at']=load_ts
+    if data.get('national_balance_source') in ('ENTSO-E aligned','ENTSO-E aligned v2'):return
+    if load is not None:set_ned_load_headline(data,load,load_ts)
     if total is not None:data['generation_mw']=total;data['generation_mw_measured_at']=total_ts
     data['national_balance_source']='NED partial fallback'
     times=[x for x in (load_ts,total_ts) if x]
@@ -84,7 +100,6 @@ def main():
     if data.get('generation_mw') is not None and total is not None:data['ned_generation_delta_mw']=round(total-float(data['generation_mw']),1)
     apply_ned_fallback(data,load,load_ts,total,total_ts)
 
-    # Keep NED per-source detail as a comparison dataset; never replace aligned ENTSO-E mix.
     rows=[]
     for type_id,code,name,prov in NED_TYPES:
         try:
