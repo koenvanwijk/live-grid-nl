@@ -69,6 +69,35 @@ class NedGenerationMixTests(unittest.TestCase):
         self.assertEqual(data['observations']['system']['tennet_transmission_load']['source'], 'TenneT')
         self.assertEqual(data['load_mw_measured_at'], '2026-08-17T18:30:00+00:00')
 
+    def test_ned_becomes_national_headline_and_entso_is_reference(self):
+        data = {
+            'national_balance_source': 'ENTSO-E aligned',
+            'balance_timestamp': '2026-09-04T12:00:00+00:00',
+            'load_mw': 11151.1,
+            'generation_mw': 6437.1,
+            'net_import_mw': 617.9,
+            'balance_residual_mw': 4096.1,
+            'observations': {'system': {}},
+        }
+        ok = mod.apply_ned_national_headline(
+            data, 14929.5, '2026-09-04T12:45:00+00:00',
+            19609.8, '2026-09-04T12:45:00+00:00',
+        )
+        self.assertTrue(ok)
+        self.assertEqual(data['load_mw'], 14929.5)
+        self.assertEqual(data['generation_mw'], 19609.8)
+        self.assertEqual(data['entso_load_mw'], 11151.1)
+        self.assertEqual(data['entso_generation_mw'], 6437.1)
+        self.assertEqual(data['entso_balance_residual_mw'], 4096.1)
+        self.assertIsNone(data['balance_residual_mw'])
+        self.assertIsNone(data['balance_timestamp'])
+        self.assertEqual(data['expected_net_export_mw'], 4680.3)
+        self.assertEqual(data['entso_physical_net_export_mw'], -617.9)
+        self.assertEqual(data['cross_border_balance_gap_mw'], 5298.2)
+        self.assertEqual(data['observations']['system']['load']['source'], 'NED')
+        self.assertEqual(data['observations']['system']['generation']['source'], 'NED')
+        self.assertTrue(data['national_balance_source'].startswith('NED national totals'))
+
 
 if __name__ == '__main__':
     unittest.main()
