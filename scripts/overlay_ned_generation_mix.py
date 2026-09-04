@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Add fresh NED comparison data without breaking an aligned ENTSO-E balance.
+"""Use NED for Dutch national load/generation and ENTSO-E for physical borders.
 
-If update_live.py produced a complete timestamp-aligned ENTSO-E national balance,
-NED stays an independent load/generation cross-check and remains the regional
-source for province data. Only when ENTSO-E alignment is unavailable does NED
-become the national headline fallback.
+NED type 59 (ElectricityLoad) and type 27 (ElectricityMix) are treated as the
+national headline totals because they share the same Dutch system definition.
+ENTSO-E A11 remains the source for physical cross-border flows. A65/A75 values
+are preserved as an ENTSO-E reference, but are no longer presented as if they
+formed the same national system boundary as NED.
 """
 from __future__ import annotations
 
@@ -27,6 +28,7 @@ def age_minutes(value,now=None):
     ts=parse_time(value)
     if ts is None:return None
     return max(0.0,((now or datetime.now(timezone.utc))-ts).total_seconds()/60.0)
+
 def fresh(row,now=None):
     age=age_minutes(row.get('validfrom'),now);return age is not None and age<=MAX_AGE_MINUTES
 
@@ -61,7 +63,6 @@ def preserve_tennet(data):
     data['tennet_transmission_load_measured_at']=m.get('measured_at')
 
 def preserve_tennet_transmission_load(data):
-    """Backward-compatible helper used by tests and older callers."""
     preserve_tennet(data)
     if data.get('tennet_transmission_load_mw') is None:return
     data.setdefault('observations',{}).setdefault('system',{})['tennet_transmission_load']={
@@ -69,36 +70,62 @@ def preserve_tennet_transmission_load(data):
         'source':'TenneT','measured_at':data.get('tennet_transmission_load_measured_at')}
 
 def set_ned_load_headline(data,value,ts):
-    """Set NED load as headline for fallback mode while keeping provenance explicit."""
     if value is None:return
     data['load_mw']=value;data['load_mw_measured_at']=ts
     data.setdefault('observations',{}).setdefault('system',{})['load']={
         'value':value,'unit':'MW','provenance':'measured','temporal':'actual','source':'NED','measured_at':ts}
+
+def set_ned_generation_headline(data,value,ts):
+    if value is None:return
+    data['generation_mw']=value;data['generation_mw_measured_at']=ts
+    data.setdefault('observations',{}).setdefault('system',{})['generation']={
+        'value':value,'unit':'MW','provenance':'derived','temporal':'actual','source':'NED','measured_at':ts}
 
 def set_ned_comparison(data,key,value,ts,end=None,published=None):
     if value is None:return
     data[key]=value;data[key+'_measured_at']=ts
     data.setdefault('observations',{}).setdefault('comparison',{})[key]={'value':value,'unit':'MW','provenance':'measured' if key=='ned_load_mw' else 'derived','temporal':'actual','source':'NED','measured_at':ts,'interval_start':ts,'interval_end':end,'published_at':published}
 
-def apply_ned_fallback(data,load,load_ts,total,total_ts):
-    if data.get('national_balance_source') in ('ENTSO-E aligned','ENTSO-E aligned v2'):return
-    if load is not None:set_ned_load_headline(data,load,load_ts)
-    if total is not None:data['generation_mw']=total;data['generation_mw_measured_at']=total_ts
-    data['national_balance_source']='NED partial fallback'
+def preserve_entso_reference(data):
+    if data.get('national_balance_source','').startswith('ENTSO-E'):
+        data['entso_load_mw']=data.get('load_mw')
+        data['entso_generation_mw']=data.get('generation_mw')
+        data['entso_net_import_mw']=data.get('net_import_mw')
+        data['entso_balance_residual_mw']=data.get('balance_residual_mw')
+        data['entso_balance_timestamp']=data.get('balance_timestamp')
+
+def apply_ned_national_headline(data,load,load_ts,total,total_ts):
+    """Switch the national headline to NED while leaving A11 border flows intact."""
+    if load is None or total is None:return False
+    preserve_entso_reference(data)
+    set_ned_load_headline(data,load,load_ts)
+    set_ned_generation_headline(data,total,total_ts)
+    data['national_balance_source']='NED national totals + ENTSO-E physical borders'
+    data['balance_timestamp']=None
+    data['balance_residual_mw']=None
+    data['balance_equation']='NED opwek - NED vraag = verwachte netto export; vergelijk met ENTSO-E A11 fysieke grensstromen'
+    data['expected_net_export_mw']=round(total-load,1)
+    net_import=data.get('net_import_mw')
+    if net_import is not None:
+        actual_export=-float(net_import)
+        data['entso_physical_net_export_mw']=round(actual_export,1)
+        data['cross_border_balance_gap_mw']=round((total-load)-actual_export,1)
     times=[x for x in (load_ts,total_ts) if x]
     if times:data['measured_at']=max(times)
+    return True
+
+def apply_ned_fallback(data,load,load_ts,total,total_ts):
+    """Compatibility wrapper: NED is now the preferred national headline."""
+    return apply_ned_national_headline(data,load,load_ts,total,total_ts)
 
 def main():
     if not TOKEN:
         print('NED_TOKEN missing: keeping collector data');return
-    data=json.loads(PATH.read_text());warnings=data.setdefault('warnings',[]);preserve_tennet(data)
+    data=json.loads(PATH.read_text());warnings=data.setdefault('warnings',[]);preserve_tennet_transmission_load(data)
     load,load_ts,load_end,load_pub=fresh_ned_value(59,2,'load',warnings)
     total,total_ts,total_end,total_pub=fresh_ned_value(27,1,'generation total',warnings)
     set_ned_comparison(data,'ned_load_mw',load,load_ts,load_end,load_pub)
     set_ned_comparison(data,'ned_generation_mw',total,total_ts,total_end,total_pub)
-    if data.get('load_mw') is not None and load is not None:data['ned_load_delta_mw']=round(load-float(data['load_mw']),1)
-    if data.get('generation_mw') is not None and total is not None:data['ned_generation_delta_mw']=round(total-float(data['generation_mw']),1)
-    apply_ned_fallback(data,load,load_ts,total,total_ts)
 
     rows=[]
     for type_id,code,name,prov in NED_TYPES:
@@ -106,14 +133,18 @@ def main():
             row=to_mix_row(request_latest(type_id,1),code,name,prov)
             if row:rows.append(row)
         except Exception as exc:warnings.append(f'NED generation mix {name}: {exc}')
-    if rows:data['ned_generation_mix']=sorted(rows,key=lambda r:r['mw'],reverse=True)
+    if rows:
+        data['ned_generation_mix']=sorted(rows,key=lambda r:r['mw'],reverse=True)
+        data['generation_mix']=data['ned_generation_mix']
+        data['generation_mix_source']='NED'
 
-    if all(data.get(k) is not None for k in ('load_mw','generation_mw','net_import_mw')):
-        data['balance_residual_mw']=round(float(data['load_mw'])-float(data['generation_mw'])-float(data['net_import_mw']),1)
-        data['balance_equation']='vraag = opwek + netto import + restverschil'
+    switched=apply_ned_national_headline(data,load,load_ts,total,total_ts)
+    if not switched:warnings.append('NED national headline: fresh load and generation total not both available; keeping collector headline')
     PATH.write_text(json.dumps(data,indent=2,ensure_ascii=False)+'\n')
-    print('national balance:',data.get('national_balance_source'),'@',data.get('balance_timestamp'))
-    print('NED comparison load/generation:',load,total)
-    print('balance residual:',data.get('balance_residual_mw'))
+    print('national headline:',data.get('national_balance_source'))
+    print('NED load/generation:',load,total)
+    print('expected NED net export:',data.get('expected_net_export_mw'))
+    print('ENTSO-E physical net export:',data.get('entso_physical_net_export_mw'))
+    print('cross-border gap:',data.get('cross_border_balance_gap_mw'))
 
 if __name__=='__main__':main()
