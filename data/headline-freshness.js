@@ -6,17 +6,19 @@ function ensureDetails(){const grid=document.querySelector('.system-grid');if(!g
 function fmt(v){return Number.isFinite(Number(v))?Math.round(Number(v)).toLocaleString('nl-NL'):'—'}
 function signed(v){const n=Number(v);return Number.isFinite(n)?`${n>0?'+':''}${fmt(n)}`:'—'}
 function render(d){if(!d||d.status!=='ok')return;
- const balanceTs=d.balance_timestamp||d.measured_at;
- const loadTs=d.observations?.system?.load?.measured_at||balanceTs,genTs=d.observations?.system?.generation?.measured_at||balanceTs,netTs=d.observations?.system?.net_import?.measured_at||balanceTs;
- const aligned=d.national_balance_source==='ENTSO-E aligned';const source=aligned?'ENTSO-E':'fallback';
- metricLabel('#loadMW','vraag MW',source,loadTs);metricLabel('#genMW','opwek MW',source,genTs);
- const netLabel=document.querySelector('#netLabel');if(netLabel)netLabel.textContent=`${Number(d.net_import_mw)<0?'netto export':'netto import'} MW · ${source} · ${ageText(netTs)}`;
- const ages=[loadTs,genTs,netTs].map(ageMin).filter(Number.isFinite);if(ages.length){const age=document.querySelector('#age');if(age)age.textContent=`${Math.max(...ages)} min`;const span=age?.parentElement?.querySelector('span');if(span)span.textContent=aligned?'balansmoment':'oudste hoofdwaarde'}
+ const loadTs=d.load_mw_measured_at||d.observations?.system?.load?.measured_at||d.measured_at;
+ const genTs=d.generation_mw_measured_at||d.observations?.system?.generation?.measured_at||d.measured_at;
+ const netTs=d.entso_balance_timestamp||d.observations?.system?.net_import?.measured_at||d.measured_at;
+ const nedHeadline=String(d.national_balance_source||'').startsWith('NED national totals');
+ metricLabel('#loadMW','vraag MW',nedHeadline?'NED':'bron',loadTs);metricLabel('#genMW','opwek MW',nedHeadline?'NED':'bron',genTs);
+ const netLabel=document.querySelector('#netLabel');if(netLabel)netLabel.textContent=`${Number(d.net_import_mw)<0?'netto export':'netto import'} MW · ENTSO-E A11 · ${ageText(netTs)}`;
+ const ages=[loadTs,genTs].map(ageMin).filter(Number.isFinite);if(ages.length){const age=document.querySelector('#age');if(age)age.textContent=`${Math.max(...ages)} min`;const span=age?.parentElement?.querySelector('span');if(span)span.textContent='NED hoofdwaarden'}
  const details=ensureDetails();if(!details)return;
- const residual=Number(d.balance_residual_mw),hasResidual=Number.isFinite(residual),tol=Math.max(150,Number(d.load_mw||0)*.02),bad=hasResidual&&Math.abs(residual)>tol;
- const nl=d.ned_load_mw,ng=d.ned_generation_mw,ld=d.ned_load_delta_mw,gd=d.ned_generation_delta_mw;
+ const expected=Number(d.expected_net_export_mw),physical=Number(d.entso_physical_net_export_mw),gap=Number(d.cross_border_balance_gap_mw);
+ const entsoLoad=Number(d.entso_load_mw),entsoGen=Number(d.entso_generation_mw),entsoTs=d.entso_balance_timestamp;
  const tMw=d.tennet_transmission_load_mw,tTs=d.tennet_transmission_load_measured_at,tAge=ageMin(tTs),stale=tAge!=null&&tAge>30;
- details.innerHTML=`<b>${aligned?'ENTSO-E systeembalans':'Broncontrole'}</b>${aligned?` · één tijdstip ${new Date(balanceTs).toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit'})}`:''}<br>${hasResidual?`restverschil: ${signed(residual)} MW${bad?' · <b>balans sluit nog niet</b>':' · balans binnen tolerantie'}`:''}${nl!=null?`<br>NED controle vraag: ${fmt(nl)} MW${Number.isFinite(Number(ld))?` (${signed(ld)} MW t.o.v. ENTSO-E)`:''}`:''}${ng!=null?`<br>NED controle opwek: ${fmt(ng)} MW${Number.isFinite(Number(gd))?` (${signed(gd)} MW t.o.v. ENTSO-E)`:''}`:''}${tMw!=null?`<br>TenneT transmissienet-belasting: ${fmt(tMw)} MW · ${ageText(tTs)}${stale?' · verouderd':''}`:''}<br><small>NED blijft bron voor provinciale zon/wind; de drie nationale hoofdwaarden worden bij voorkeur niet tussen bronnen gemengd.</small>`;
+ const expectedDir=expected>=0?'export':'import',physicalDir=physical>=0?'export':'import';
+ details.innerHTML=`<b>NED nationale totalen</b> · vraag en opwek uit dezelfde Nederlandse systeemdefinitie<br>${Number.isFinite(expected)?`NED verwacht netto ${expectedDir}: ${fmt(Math.abs(expected))} MW`:''}${Number.isFinite(physical)?`<br>ENTSO-E A11 fysieke ${physicalDir}: ${fmt(Math.abs(physical))} MW`:''}${Number.isFinite(gap)?`<br>verschil tussen NED-implicatie en beschikbare A11-grensstromen: ${signed(gap)} MW`:''}${Number.isFinite(entsoLoad)&&Number.isFinite(entsoGen)?`<br><small>ENTSO-E referentie${entsoTs?` ${new Date(entsoTs).toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit'})}`:''}: A65 load ${fmt(entsoLoad)} MW · A75 opwek ${fmt(entsoGen)} MW; niet gebruikt als nationale balans.</small>`:''}${tMw!=null?`<br><small>TenneT transmissienet-belasting: ${fmt(tMw)} MW · ${ageText(tTs)}${stale?' · verouderd, niet gebruikt voor de headline':''}</small>`:''}<br><small>NED bepaalt de nationale vraag/opwek; ENTSO-E A11 bepaalt de beschikbare fysieke grensstromen. Een resterend verschil wordt expliciet getoond en niet meer als fictief balans-restverschil dichtgerekend.</small>`;
 }
 async function refresh(){try{const r=await fetch(`data/live.json?t=${Date.now()}`,{cache:'no-store'});if(r.ok)render(await r.json())}catch(e){console.warn('headline freshness',e)}}
 setTimeout(refresh,2600);setInterval(refresh,60000);
