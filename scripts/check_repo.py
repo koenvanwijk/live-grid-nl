@@ -16,11 +16,12 @@ def main():
     collector=(ROOT/'scripts/update_live.py').read_text(encoding='utf-8')
     for fragment in ("documentType':'A65'","documentType':'A75'","documentType':'A11'",'latest_common_timestamp','aligned_entso_balance','CORE_BORDERS',"national_balance_source']='ENTSO-E aligned'",'balance_timestamp','in_Domain receives'):assert fragment in collector,fragment
     overlay=(ROOT/'scripts/overlay_ned_generation_mix.py').read_text(encoding='utf-8')
-    for fragment in ('ENTSO-E aligned','ned_load_mw','ned_generation_mw','apply_ned_fallback','ned_generation_mix','set_ned_comparison'):assert fragment in overlay,fragment
+    for fragment in ('NED national totals + ENTSO-E physical borders','expected_net_export_mw','entso_physical_net_export_mw','cross_border_balance_gap_mw','preserve_entso_reference','set_ned_generation_headline','generation_mix_source'):assert fragment in overlay,fragment
     provenance=(ROOT/'scripts/enrich_provenance.py').read_text(encoding='utf-8');assert "national_balance_source')=='ENTSO-E aligned'" in provenance;assert "source='ENTSO-E'" in provenance
     freshness=(ROOT/'data/headline-freshness.js').read_text(encoding='utf-8')
-    for fragment in ('balance_timestamp','ENTSO-E systeembalans','NED controle vraag','NED controle opwek','balans sluit nog niet'):assert fragment in freshness,fragment
-    index=(ROOT/'index.html').read_text(encoding='utf-8');assert 'data/headline-freshness.js' in index;assert 'data/layer-toggle-colors.css' in index
+    for fragment in ('NED nationale totalen','ENTSO-E A11','expected_net_export_mw','cross_border_balance_gap_mw','niet gebruikt als nationale balans'):assert fragment in freshness,fragment
+    index=(ROOT/'index.html').read_text(encoding='utf-8');assert 'data/headline-freshness.js?v=3' in index;assert 'data/layer-toggle-colors.css' in index;assert 'Nationale hoofdwaarden' in index
+    sw=(ROOT/'sw.js').read_text(encoding='utf-8');assert "nl-grid-static-v34" in sw;assert 'headline-freshness.js?v=3' in sw
     for path in ['data/capacity-scale.js','data/injections.js','data/solar-storage.js','data/interconnector-flags.js','data/capacity-overrides.js']:assert 'capacityDiameter' in (ROOT/path).read_text(encoding='utf-8'),path
     print('repository consistency: OK')
 if __name__=='__main__':main()
