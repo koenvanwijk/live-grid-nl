@@ -1,0 +1,13 @@
+.filters .swatch{box-shadow:0 0 5px color-mix(in srgb,currentColor 45%,transparent)}
+.filters .province-flow{background:#b56cff}
+.filters .solar{background:#ffd65a}
+.filters .wind-land,.filters .offshore{background:#62d9ff}
+.filters .storage{background:#69dff5}
+.filters .xborder{background:linear-gradient(90deg,#49eca0 0 33%,#ffca59 33% 66%,#ff5964 66%)}
+.filters .cable{background:repeating-linear-gradient(90deg,#a8b4bf 0 4px,transparent 4px 7px)}
+.onshore-wind-asset,.onshore-turbine-detail{background:rgba(8,37,52,.94)!important;border-color:#62d9ff!important;box-shadow:0 0 0 1px rgba(0,0,0,.7),0 0 9px rgba(98,217,255,.3)!important}
+.mini-wind-rotor,.tiny-wind-rotor{background:conic-gradient(from 0deg,#bdf3ff 0 12deg,transparent 12deg 120deg,#bdf3ff 120deg 132deg,transparent 132deg 240deg,#bdf3ff 240deg 252deg,transparent 252deg 360deg)!important;filter:drop-shadow(0 0 2px rgba(98,217,255,.85))}
+.mini-wind-rotor:after,.tiny-wind-rotor:after{background:#d8f8ff!important}
+.mini-wind-mast,.tiny-wind-mast{background:#bdf3ff!important}
+.solar-asset{border-color:#ffd65a!important;color:#ffe36c!important}
+.storage-asset{border-color:#69dff5!important}
