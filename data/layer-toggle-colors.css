@@ -1,7 +1,8 @@
 .filters .swatch{box-shadow:0 0 5px color-mix(in srgb,currentColor 45%,transparent)}
 .filters .province-flow{background:#b56cff}
 .filters .solar{background:#ffd65a}
-.filters .wind-land,.filters .offshore{background:#62d9ff}
+.filters .wind-land{background:#62d9ff}
+.filters .offshore{background:#62d9ff}
 .filters .storage{background:#69dff5}
 .filters .xborder{background:linear-gradient(90deg,#49eca0 0 33%,#ffca59 33% 66%,#ff5964 66%)}
 .filters .cable{background:repeating-linear-gradient(90deg,#a8b4bf 0 4px,transparent 4px 7px)}
