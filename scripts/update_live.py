@@ -81,6 +81,12 @@ def entso_error_body(err):
             if texts:return ' | '.join(texts)[:300]
         except Exception:pass
     return body.strip().replace('\n',' ')[:300]
+def entso_transient(body):
+    # ENTSO-E's gateway sometimes wraps a backend/auth timeout in a 400/599
+    # with these phrases; those are worth retrying. Genuine parameter errors
+    # ("Mandatory parameter ... missing", "No matching data") are not.
+    b=(body or '').lower()
+    return any(s in b for s in ('timeout','unable to access','unexpected error','i/o error','connecttimeout','temporarily unavailable','try again'))
 def entso_request(params,retries=3,backoff=2.0):
     url=ENTSO_API+'?'+urllib.parse.urlencode({'securityToken':ENTSO_TOKEN,**params})
     req=urllib.request.Request(url,headers={'User-Agent':USER_AGENT})
@@ -88,8 +94,8 @@ def entso_request(params,retries=3,backoff=2.0):
         try:
             with urllib.request.urlopen(req,timeout=30) as r:return r.read()
         except urllib.error.HTTPError as e:
-            if e.code in RETRY_STATUS and attempt<retries-1:time.sleep(backoff*2**attempt);continue
             body=entso_error_body(e)
+            if attempt<retries-1 and (e.code in RETRY_STATUS or entso_transient(body)):time.sleep(backoff*2**attempt);continue
             raise ApiError(f'HTTP {e.code} {e.reason} [{entso_query_hint(params)}]'+(f': {body}' if body else '')) from e
         except OSError:  # URLError, TimeoutError and other socket errors
             if attempt<retries-1:time.sleep(backoff*2**attempt);continue
