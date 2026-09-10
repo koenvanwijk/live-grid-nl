@@ -6,6 +6,7 @@ from pathlib import Path
 USER_AGENT='live-grid-nl/1.0 (+https://github.com/koenvanwijk/live-grid-nl)'
 RETRY_STATUS={502,503,504}
 ENTSO_API='https://web-api.tp.entsoe.eu/api'
+ELEXON_API='https://data.elexon.co.uk/bmrs/api/v1'
 NED_API='https://api.ned.nl/v1/utilizations'
 TENNET_METERED='https://api.tennet.eu/publications/v1/metered-injections'
 TENNET_BALANCE='https://api.tennet.eu/publications/v1/balance-delta-high-res/latest'
@@ -161,9 +162,32 @@ def latest_common_timestamp(load,gen,borders):
     valid=[ts for ts in common if (parse_dt(ts) or now)<=now]
     return max(valid or common)
 
+def britned_series(start,end):
+    # NL-perspective flow of the BritNed (NL<->GB) link from Elexon BMRS, since
+    # ENTSO-E stopped publishing NL-GB flows after Brexit. Half-hourly, UTC.
+    now=datetime.now(timezone.utc)
+    d0=(now-timedelta(days=1)).strftime('%Y-%m-%d');d1=now.strftime('%Y-%m-%d')
+    url=f'{ELEXON_API}/generation/outturn/interconnectors?settlementDateFrom={d0}&settlementDateTo={d1}&format=json'
+    req=urllib.request.Request(url,headers={'User-Agent':USER_AGENT})
+    with urllib.request.urlopen(req,timeout=30) as r:payload=json.load(r)
+    out={}
+    for row in payload.get('data',[]):
+        if 'BritNed' not in (row.get('interconnectorName') or ''):continue
+        t=parse_dt(row.get('startTime'));mw=row.get('generation')
+        if t is None or mw is None:continue
+        # Elexon reports GB-side (positive=import to GB); NL side is the inverse.
+        out[t.replace(microsecond=0).isoformat()]=-float(mw)
+    return out
+
 def aligned_entso_balance(start,end):
     load=entso_load_series(start,end);gen=entso_generation_series(start,end);borders={}
     for label,domain in BORDERS.items():borders[label]=entso_border_series(domain,start,end)
+    elexon_borders=set()
+    if not borders.get('GB'):
+        try:
+            s=britned_series(start,end)
+            if s:borders['GB']=s;elexon_borders.add('GB')
+        except Exception:pass
     ts=latest_common_timestamp(load,gen,borders)
     if not ts:raise ApiError('ENTSO-E: no common timestamp for load, generation and DE/BE border flows')
     mix=[{'code':code,'name':PSR_NAMES.get(code,code),'mw':round(mw,1)} for code,mw in gen[ts].items() if abs(mw)>=.05]
@@ -174,12 +198,13 @@ def aligned_entso_balance(start,end):
     now=datetime.now(timezone.utc);flows={}
     for label,series in borders.items():
         if not series:continue
-        if ts in series:flows[label]=round(series[ts],1);continue
+        if ts in series:flows[label]=round(series[ts],1)+0.0;continue
         past=[t for t in series if (parse_dt(t) or now)<=now]
-        if past:flows[label]=round(series[max(past)],1)
+        if past:flows[label]=round(series[max(past)],1)+0.0
     generation=round(sum(r['mw'] for r in mix),1);net_import=round(sum(flows.values()),1)
     residual=round(load[ts]-generation-net_import,1)
-    return {'timestamp':ts,'load_mw':round(load[ts],1),'generation_mw':generation,'generation_mix':mix,'border_flows':flows,'net_import_mw':net_import,'balance_residual_mw':residual}
+    sources={label:('Elexon/BMRS' if label in elexon_borders else 'ENTSO-E') for label in flows}
+    return {'timestamp':ts,'load_mw':round(load[ts],1),'generation_mw':generation,'generation_mix':mix,'border_flows':flows,'border_flow_sources':sources,'net_import_mw':net_import,'balance_residual_mw':residual}
 
 def entso_installed_capacity():
     now=datetime.now(timezone.utc);y=now.year;start=f'{y}01010000';end=f'{y+1}01010000'
@@ -236,7 +261,7 @@ def main():
         start,end=entso_window()
         try:
             b=aligned_entso_balance(start,end)
-            data.update({k:b[k] for k in ('load_mw','generation_mw','generation_mix','border_flows','net_import_mw','balance_residual_mw')})
+            data.update({k:b[k] for k in ('load_mw','generation_mw','generation_mix','border_flows','border_flow_sources','net_import_mw','balance_residual_mw')})
             data['balance_timestamp']=b['timestamp'];data['measured_at']=b['timestamp'];data['national_balance_source']='ENTSO-E aligned';data['balance_equation']='vraag = opwek + netto import + restverschil'
         except Exception as e:data['warnings'].append('ENTSO-E aligned balance: '+str(e))
         try:data['installed_capacity_by_type']=entso_installed_capacity()
