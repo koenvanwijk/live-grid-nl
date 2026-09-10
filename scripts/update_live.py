@@ -273,6 +273,16 @@ def main():
         try:data['installed_capacity_by_type']=entso_installed_capacity()
         except Exception as e:data['warnings'].append('ENTSO-E installed capacity: '+str(e))
         data['sources'].append('ENTSO-E')
+    # BritNed (NL-GB) comes from Elexon, independent of ENTSO-E, so it must show
+    # even when ENTSO-E is unreachable and the aligned path never added it.
+    if 'GB' not in (data.get('border_flows') or {}):
+        try:
+            s=britned_series('','');past=[t for t in s if (parse_dt(t) or now)<=now]
+            if past:
+                data.setdefault('border_flows',{})['GB']=round(s[max(past)],1)+0.0
+                data.setdefault('border_flow_sources',{})['GB']='Elexon/BMRS'
+                if 'Elexon' not in data['sources']:data['sources'].append('Elexon')
+        except Exception as e:data['warnings'].append('Elexon BritNed: '+str(e))
     # Fallback only when a complete aligned ENTSO-E national balance is unavailable.
     if data['national_balance_source'] is None:
         if data.get('ned_load_mw') is not None:data['load_mw']=data['ned_load_mw'];data['measured_at']=data.get('ned_load_measured_at');data['national_balance_source']='NED partial fallback'
